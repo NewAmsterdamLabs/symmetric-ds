@@ -155,6 +155,37 @@ public class PostgreSqlDdlBuilder extends AbstractDdlBuilder {
             }
         }
         super.createTable(table, ddl, temporary, recreate);
+        createTableComments(table, ddl);
+    }
+
+    protected void createTableComments(Table table, StringBuilder ddl) {
+        if (table.getDescription() != null) {
+            addTableComment(table, ddl);
+        }
+        for (int idx = 0; idx < table.getColumnCount(); idx++) {
+            Column column = table.getColumn(idx);
+            if (column.getDescription() != null) {
+                addColumnComment(table, column, ddl);
+            }
+        }
+    }
+
+    protected void addColumnComment(Table table, Column column, StringBuilder ddl) {
+        ddl.append("COMMENT ON COLUMN ");
+        ddl.append(table.getName()).append(".").append(column.getName());
+        ddl.append(" IS '");
+        ddl.append(column.getDescription());
+        ddl.append("'");
+        printEndOfStatement(ddl);
+    }
+
+    protected void addTableComment(Table table, StringBuilder ddl) {
+        ddl.append("COMMENT ON TABLE ");
+        ddl.append(table.getName());
+        ddl.append(" IS '");
+        ddl.append(table.getDescription());
+        ddl.append("'");
+        printEndOfStatement(ddl);
     }
 
     /*
@@ -327,6 +358,7 @@ public class PostgreSqlDdlBuilder extends AbstractDdlBuilder {
         ddl.append(" ADD COLUMN ");
         writeColumn(change.getChangedTable(), change.getNewColumn(), ddl);
         printEndOfStatement(ddl);
+        addColumnComment(change.getChangedTable(), change.getNewColumn(), ddl);
         change.apply(currentModel, delimitedIdentifierModeOn);
     }
 
@@ -365,6 +397,7 @@ public class PostgreSqlDdlBuilder extends AbstractDdlBuilder {
             printDefaultValue(change.getNewDefaultValue(), column.getMappedTypeCode(), ddl);
             printEndOfStatement(ddl);
         }
+        addColumnComment(change.getChangedTable(), change.getChangedColumn(), ddl);
     }
 
     protected void processChange(Database currentModel, Database desiredModel,
@@ -380,6 +413,7 @@ public class PostgreSqlDdlBuilder extends AbstractDdlBuilder {
             ddl.append(" DROP NOT NULL ");
         }
         printEndOfStatement(ddl);
+        addColumnComment(change.getChangedTable(), change.getChangedColumn(), ddl);
     }
 
     protected void processChange(Database currentModel, Database desiredModel,

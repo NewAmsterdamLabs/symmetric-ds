@@ -2345,8 +2345,11 @@ public abstract class AbstractDdlBuilder implements IDdlBuilder {
                         printIdentifier(name, ddl);
                     }
                 }
-
                 ddl.append(")");
+                if (index.getFilterCondition() != null) {
+                    ddl.append(" WHERE ");
+                    ddl.append(index.getFilterCondition());
+                }
                 printEndOfStatement(ddl);
             }
         }
@@ -2382,8 +2385,11 @@ public abstract class AbstractDdlBuilder implements IDdlBuilder {
             }
             printIdentifier(getColumnName(col), ddl);
         }
-
         ddl.append(")");
+        if (index.getFilterCondition() != null) {
+            ddl.append(" WHERE ");
+            ddl.append(index.getFilterCondition());
+        }
     }
 
     /**
