@@ -47,6 +47,10 @@ public interface IIndex extends Cloneable, Serializable
      */
     public void setName(String name);
 
+    public String getFilterCondition();
+
+    public void setFilterCondition(String filterCondition);
+
     /**
      * Returns the number of columns that make up this index.
      * 

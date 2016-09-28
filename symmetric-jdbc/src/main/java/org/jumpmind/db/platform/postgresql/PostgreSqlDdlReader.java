@@ -39,6 +39,7 @@ import org.jumpmind.db.platform.AbstractJdbcDdlReader;
 import org.jumpmind.db.platform.DatabaseMetaDataWrapper;
 import org.jumpmind.db.platform.IDatabasePlatform;
 import org.jumpmind.db.sql.JdbcSqlTemplate;
+import org.jumpmind.db.sql.JdbcUtils;
 
 /*
  * Reads a database model from a PostgreSql database.
@@ -84,7 +85,7 @@ public class PostgreSqlDdlReader extends AbstractJdbcDdlReader {
         }
         return table;
     }
-    
+
     protected void setPrimaryKeyConstraintName(Connection connection, Table table) throws SQLException {
         String sql = "select conname from pg_constraint where conrelid in (select oid from pg_class where relname=? and relnamespace in (select oid from pg_namespace where nspname=?)) and contype='p'";
         PreparedStatement pstmt = null;

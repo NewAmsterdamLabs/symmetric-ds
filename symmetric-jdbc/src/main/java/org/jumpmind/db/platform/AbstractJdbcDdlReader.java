@@ -269,6 +269,7 @@ public abstract class AbstractJdbcDdlReader implements IDdlReader {
         result.add(new MetaDataColumnDescriptor("ORDINAL_POSITION", Types.TINYINT, new Short(
                 (short) 0)));
         result.add(new MetaDataColumnDescriptor("COLUMN_NAME", Types.VARCHAR));
+        result.add(new MetaDataColumnDescriptor("FILTER_CONDITION", Types.VARCHAR));
         result.add(new MetaDataColumnDescriptor("TYPE", Types.TINYINT));
         return result;
     }
@@ -1133,7 +1134,9 @@ public abstract class AbstractJdbcDdlReader implements IDdlReader {
                 } else {
                     index = new UniqueIndex();
                 }
-
+                if (values.containsKey("FILTER_CONDITION")) {
+                    index.setFilterCondition((String)values.get("FILTER_CONDITION"));
+                }
                 index.setName(indexName);
                 knownIndices.put(indexName, index);
             }

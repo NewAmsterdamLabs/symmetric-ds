@@ -34,12 +34,23 @@ public abstract class IndexImpBase implements IIndex {
     /** The columns making up the index. */
     protected ArrayList<IndexColumn> columns = new ArrayList<IndexColumn>();
 
+    /** the filter condition which makes it a partial index */
+    protected String filterCondition;
+
     public String getName() {
         return name;
     }
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getFilterCondition() {
+        return filterCondition;
+    }
+
+    public void setFilterCondition(String filterCondition) {
+        this.filterCondition = filterCondition;
     }
 
     public int getColumnCount() {
