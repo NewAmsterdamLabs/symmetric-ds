@@ -174,7 +174,7 @@ public class PostgreSqlDdlBuilder extends AbstractDdlBuilder {
         ddl.append("COMMENT ON COLUMN ");
         ddl.append(table.getName()).append(".").append(column.getName());
         ddl.append(" IS '");
-        ddl.append(column.getDescription());
+        ddl.append(quoteCommentDescription(column.getDescription()));
         ddl.append("'");
         printEndOfStatement(ddl);
     }
@@ -183,9 +183,13 @@ public class PostgreSqlDdlBuilder extends AbstractDdlBuilder {
         ddl.append("COMMENT ON TABLE ");
         ddl.append(table.getName());
         ddl.append(" IS '");
-        ddl.append(table.getDescription());
+        ddl.append(quoteCommentDescription(table.getDescription()));
         ddl.append("'");
         printEndOfStatement(ddl);
+    }
+
+    protected String quoteCommentDescription(String description) {
+        return description.replaceAll("'", "''");
     }
 
     /*
