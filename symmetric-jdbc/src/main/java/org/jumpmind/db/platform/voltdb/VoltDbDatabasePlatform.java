@@ -46,6 +46,8 @@ public class VoltDbDatabasePlatform extends AbstractJdbcDatabasePlatform {
         getDatabaseInfo().setDelimitedIdentifiersSupported(false);
         getDatabaseInfo().setTriggersSupported(false);
         getDatabaseInfo().setForeignKeysSupported(false);
+        getDatabaseInfo().setHasPrecisionAndScale(Types.DECIMAL, false);
+        getDatabaseInfo().setHasPrecisionAndScale(Types.FLOAT, false);
     }
 
     public static final String JDBC_DRIVER = "org.voltdb.jdbc.Driver";
@@ -75,7 +77,6 @@ public class VoltDbDatabasePlatform extends AbstractJdbcDatabasePlatform {
         if (objectValue instanceof byte[]
                 && (column.getJdbcTypeCode() == Types.VARBINARY
                     || column.getJdbcTypeCode() == Types.CLOB)) {
-            String rawString = new String((byte[])objectValue);
             objectValue = new String(Hex.encode((byte[])objectValue));
         }
         return objectValue;
@@ -91,6 +92,7 @@ public class VoltDbDatabasePlatform extends AbstractJdbcDatabasePlatform {
         return defaultCatalog;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public <T> T getDataSource() {
         return (T) dataSource;
@@ -111,9 +113,8 @@ public class VoltDbDatabasePlatform extends AbstractJdbcDatabasePlatform {
         return new VoltDbDdlReader(this);
     }    
     
-    @Override
+    @Override   
     protected VoltDbJdbcSqlTemplate createSqlTemplate() {
-        // TODO
         return new VoltDbJdbcSqlTemplate(dataSource, settings, new SymmetricLobHandler(), getDatabaseInfo());
     }    
 

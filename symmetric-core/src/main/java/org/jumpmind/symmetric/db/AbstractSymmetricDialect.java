@@ -99,6 +99,10 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
 
     protected boolean supportsTransactionViews = false;
     
+    protected boolean supportsSubselectsInDelete = true;
+    
+    protected boolean supportsSubselectsInUpdate = true;
+    
     protected Map<String,String> sqlReplacementTokens = new HashMap<String, String>();
 
     public AbstractSymmetricDialect() {
@@ -225,7 +229,13 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
 
     @Override
     public String createPurgeSqlFor(Node node, TriggerRouter triggerRouter, TriggerHistory triggerHistory, List<TransformTableNodeGroupLink> transforms) {
-        String sql = null;        	    	
+        return createPurgeSqlFor(node, triggerRouter, triggerHistory, transforms, null);
+    }
+    
+    @Override
+    public String createPurgeSqlFor(Node node, TriggerRouter triggerRouter, TriggerHistory triggerHistory, 
+            List<TransformTableNodeGroupLink> transforms, String deleteSql) {
+        String sql = null;                  
         if (StringUtils.isEmpty(triggerRouter.getInitialLoadDeleteStmt())) {
             List<String> tableNames = new ArrayList<String>();
             if (transforms != null) {
@@ -239,12 +249,13 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
             StringBuilder statements = new StringBuilder(128);
             
             for (String tableName : tableNames) {
-                String deleteSql = null;
-                if (tableName.startsWith(parameterService.getTablePrefix())) {
-                    deleteSql = "delete from %s";
-                } else {
-                    deleteSql = parameterService.getString(ParameterConstants.INITIAL_LOAD_DELETE_FIRST_SQL);
-                } 
+                if (deleteSql == null) {
+                    if (tableName.startsWith(parameterService.getTablePrefix())) {
+                        deleteSql = "delete from %s";
+                    } else {
+                        deleteSql = parameterService.getString(ParameterConstants.INITIAL_LOAD_DELETE_FIRST_SQL);
+                    } 
+                }
                 statements.append(String.format(deleteSql, tableName)).append(";");
             }
             
@@ -328,9 +339,6 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
         String triggerSql = triggerTemplate.createTriggerDDL(dml, trigger, hist, channel,
                 tablePrefix, table, defaultCatalog, defaultSchema);
 
-        String postTriggerDml = createPostTriggerDDL(dml, trigger, hist, channel, tablePrefix,
-                table);
-
         if (parameterService.is(ParameterConstants.AUTO_SYNC_TRIGGERS)) {
             ISqlTransaction transaction = null;
             try {
@@ -340,20 +348,14 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
 
                 try {
                     log.debug("Running: {}", triggerSql);
+                    logSql(triggerSql, sqlBuffer);
                     transaction.execute(triggerSql);
                 } catch (SqlException ex) {
                     log.info("Failed to create trigger: {}", triggerSql);
                     throw ex;
                 }
 
-                if (StringUtils.isNotBlank(postTriggerDml)) {
-                    try {
-                        transaction.execute(postTriggerDml);
-                    } catch (SqlException ex) {
-                        log.info("Failed to create post trigger: {}", postTriggerDml);
-                        throw ex;
-                    }
-                }
+                postCreateTrigger(transaction, sqlBuffer, dml, trigger, hist, channel, tablePrefix, table);
                 transaction.commit();
             } catch (SqlException ex) {
                 transaction.rollback();
@@ -370,10 +372,21 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
 
             }
         }
+    }
 
-        logSql(triggerSql, sqlBuffer);
-        logSql(postTriggerDml, sqlBuffer);
-
+    protected void postCreateTrigger(ISqlTransaction transaction, StringBuilder sqlBuffer, DataEventType dml,
+            Trigger trigger, TriggerHistory hist, Channel channel, String tablePrefix, Table table) {
+        String postTriggerDml = createPostTriggerDDL(dml, trigger, hist, channel, tablePrefix, table);
+        if (StringUtils.isNotBlank(postTriggerDml)) {
+            try {
+                log.debug("Running: {}", postTriggerDml);
+                logSql(postTriggerDml, sqlBuffer);
+                transaction.execute(postTriggerDml);
+            } catch (SqlException ex) {
+                log.info("Failed to create post trigger: {}", postTriggerDml);
+                throw ex;
+            }
+        }
     }
 
     /*
@@ -437,20 +450,21 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
                 List<IDatabaseUpgradeListener> databaseUpgradeListeners = extensionService
                         .getExtensionPointList(IDatabaseUpgradeListener.class);
 
+                for (IDatabaseUpgradeListener listener : databaseUpgradeListeners) {
+                    String sql = listener.beforeUpgrade(this,
+                            this.parameterService.getTablePrefix(), modelFromDatabase,
+                            modelFromXml);
+                    SqlScript script = new SqlScript(sql, getPlatform().getSqlTemplate(), true,
+                            false, false, delimiter, null);
+                    script.setListener(resultsListener);
+                    script.execute(platform.getDatabaseInfo().isRequiresAutoCommitForDdl());
+                }
+
                 String alterSql = builder.alterDatabase(modelFromDatabase, modelFromXml,
                         interceptors);
+
                 if (isNotBlank(alterSql)) {
                     log.info("There are SymmetricDS tables that needed altered");
-
-                    for (IDatabaseUpgradeListener listener : databaseUpgradeListeners) {
-                        String sql = listener.beforeUpgrade(this,
-                                this.parameterService.getTablePrefix(), modelFromDatabase,
-                                modelFromXml);
-                        SqlScript script = new SqlScript(sql, getPlatform().getSqlTemplate(), true,
-                                false, false, delimiter, null);
-                        script.setListener(resultsListener);
-                        script.execute(platform.getDatabaseInfo().isRequiresAutoCommitForDdl());
-                    }
 
                     log.debug("Alter SQL generated: {}", alterSql);
 
@@ -559,6 +573,20 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
     public boolean supportsTransactionViews() {
         return supportsTransactionViews;
     }
+    
+    /*
+     * Indicates if this dialect supports subselects in delete statements.
+     */
+    public boolean supportsSubselectsInDelete() {
+        return supportsSubselectsInDelete;
+    }
+    
+    /*
+     * Indicates if this dialect supports subselects in update statements.
+     */
+    public boolean supportsSubselectsInUpdate() {
+        return supportsSubselectsInUpdate;
+    }
 
     public long insertWithGeneratedKey(String sql, SequenceIdentifier sequenceId) {
         return insertWithGeneratedKey(sql, sequenceId, null, null);
@@ -631,7 +659,7 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
     }
 
     public String getEngineName() {
-        return parameterService.getString(ParameterConstants.ENGINE_NAME);
+        return parameterService.getEngineName();
     }
 
     public boolean supportsOpenCursorsAcrossCommit() {

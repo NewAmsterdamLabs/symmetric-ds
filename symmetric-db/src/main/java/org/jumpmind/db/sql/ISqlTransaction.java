@@ -33,6 +33,8 @@ public interface ISqlTransaction {
 
     public <T> T queryForObject(String sql, Class<T> clazz, Object... args);
 
+    public Row queryForRow(String sql, Object... args);
+    
     public int queryForInt(String sql, Object... args);
     
     public long queryForLong(String sql, Object... args);
@@ -42,6 +44,8 @@ public interface ISqlTransaction {
     public int prepareAndExecute(String sql, Object[] args, int[] types);
 
     public int prepareAndExecute(String sql, Object... args);
+    
+    public int prepareAndExecute(String sql, Map<String, Object> args);
 
     public <T> List<T> query(String sql, ISqlRowMapper<T> mapper, Map<String, Object> namedParams);
 

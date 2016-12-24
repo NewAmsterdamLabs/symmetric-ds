@@ -277,6 +277,10 @@ public class MockNodeService implements INodeService {
         return null;
     }
 
+    public NodeSecurity findOrCreateNodeSecurity(String nodeId) {
+        return null;
+    }
+    
     public Node findIdentity(boolean useCache, boolean logSqlError) {
         return null;
     }
@@ -291,12 +295,24 @@ public class MockNodeService implements INodeService {
     public void clearCache() {       
     }
 
+    public void flushNodeGroupCache() {
+    }
+
     /* (non-Javadoc)
      * @see org.jumpmind.symmetric.service.INodeService#getExternalId(java.lang.String)
      */
     @Override
     public String getExternalId(String nodeId) {
         return nodeId;
+    }
+
+    @Override
+    public void flushNodeCache() {
+    }
+
+    @Override
+    public Node findNode(String id, boolean useCache) {
+        return null;
     }
 
 }

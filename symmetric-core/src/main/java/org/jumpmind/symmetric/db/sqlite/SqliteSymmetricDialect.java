@@ -32,6 +32,7 @@ import org.jumpmind.symmetric.common.TableConstants;
 import org.jumpmind.symmetric.db.AbstractSymmetricDialect;
 import org.jumpmind.symmetric.service.IContextService;
 import org.jumpmind.symmetric.service.IParameterService;
+import org.jumpmind.symmetric.service.impl.ContextService;
 import org.jumpmind.util.AppUtils;
 
 public class SqliteSymmetricDialect extends AbstractSymmetricDialect {
@@ -43,13 +44,13 @@ public class SqliteSymmetricDialect extends AbstractSymmetricDialect {
     
     String sqliteFunctionToOverride;
     
-    public SqliteSymmetricDialect(IParameterService parameterService, IContextService contextService, IDatabasePlatform platform) {
+    public SqliteSymmetricDialect(IParameterService parameterService, IDatabasePlatform platform) {
         super(parameterService, platform);
-        this.contextService = contextService;
         this.triggerTemplate = new SqliteTriggerTemplate(this);
+        this.contextService = new ContextService(parameterService, this);
         sqliteFunctionToOverride = parameterService.getString(ParameterConstants.SQLITE_TRIGGER_FUNCTION_TO_USE);
     }
-    
+        
     @Override
     public void createRequiredDatabaseObjects() {
     }
@@ -88,7 +89,7 @@ public class SqliteSymmetricDialect extends AbstractSymmetricDialect {
     public String getSyncTriggersExpression() {
         if (isBlank(sqliteFunctionToOverride)) {
             String contextTableName = parameterService.getTablePrefix() + "_" + TableConstants.SYM_CONTEXT;
-            return "(not exists (select value from " + contextTableName + " where id = '" + SYNC_TRIGGERS_DISABLED_USER_VARIABLE + "'))";
+            return "(not exists (select context_value from " + contextTableName + " where name = '" + SYNC_TRIGGERS_DISABLED_USER_VARIABLE + "'))";
         } else {
             return "(" + sqliteFunctionToOverride + "() not like 'DISABLED%')";
         }

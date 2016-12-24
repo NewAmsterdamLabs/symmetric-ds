@@ -50,12 +50,14 @@ public class DmlStatement {
     protected static final Logger log = LoggerFactory.getLogger(DmlStatement.class);
 
     public enum DmlType {
-        INSERT, UPDATE, DELETE, UPSERT, COUNT, FROM, SELECT, SELECT_ALL, UNKNOWN
+        INSERT, UPDATE, DELETE, UPSERT, COUNT, FROM, WHERE, SELECT, SELECT_ALL, UNKNOWN
     };
 
     protected DmlType dmlType;
 
     protected String sql;
+    
+    protected boolean namedParameters = false;
 
     protected int[] types;
 
@@ -74,6 +76,28 @@ public class DmlStatement {
     public DmlStatement(DmlType type, String catalogName, String schemaName, String tableName,
             Column[] keysColumns, Column[] columns, boolean[] nullKeyValues, 
             DatabaseInfo databaseInfo, boolean useQuotedIdentifiers, String textColumnExpression) {
+        
+        init(type, catalogName, schemaName, tableName, keysColumns, columns, nullKeyValues,
+                databaseInfo, useQuotedIdentifiers, textColumnExpression, false);
+
+    }
+
+    public DmlStatement(DmlType type, String catalogName, String schemaName, String tableName,
+            Column[] keysColumns, Column[] columns, boolean[] nullKeyValues, 
+            DatabaseInfo databaseInfo, boolean useQuotedIdentifiers, String textColumnExpression,
+            boolean namedParameters) {
+        
+        init(type, catalogName, schemaName, tableName, keysColumns, columns, nullKeyValues,
+                databaseInfo, useQuotedIdentifiers, textColumnExpression, namedParameters);
+
+    }
+        
+    protected void init(DmlType type, String catalogName, String schemaName, String tableName,
+            Column[] keysColumns, Column[] columns, boolean[] nullKeyValues, 
+            DatabaseInfo databaseInfo, boolean useQuotedIdentifiers, String textColumnExpression, 
+            boolean namedParameters) {
+    
+        this.namedParameters = namedParameters;
         this.databaseInfo = databaseInfo;
         this.columns = columns;
         this.textColumnExpression = textColumnExpression;
@@ -112,6 +136,9 @@ public class DmlStatement {
         } else if (type == DmlType.FROM) {
             this.sql = buildFromSql(Table.getFullyQualifiedTableName(catalogName, schemaName,
                     tableName, quote, databaseInfo.getCatalogSeparator(), databaseInfo.getSchemaSeparator()), keysColumns);
+        } else if (type == DmlType.WHERE) {
+            this.sql = buildWhereSql(Table.getFullyQualifiedTableName(catalogName, schemaName,
+                    tableName, quote, databaseInfo.getCatalogSeparator(), databaseInfo.getSchemaSeparator()), keysColumns);
         } else if (type == DmlType.SELECT) {
             this.sql = buildSelectSql(Table.getFullyQualifiedTableName(catalogName, schemaName,
                     tableName, quote, databaseInfo.getCatalogSeparator(), databaseInfo.getSchemaSeparator()), keysColumns, columns);
@@ -125,7 +152,7 @@ public class DmlStatement {
         this.types = buildTypes(this.keys, columns, databaseInfo.isDateOverridesToTimestamp());
 
     }
-
+    
     protected int[] buildTypes(Column[] keys, Column[] columns, boolean isDateOverrideToTimestamp) {
         switch (dmlType) {
             case UPDATE:
@@ -178,7 +205,7 @@ public class DmlStatement {
         StringBuilder sql = new StringBuilder("insert into " + tableName + " (");
         appendColumns(sql, columns, false);
         sql.append(") values (");
-        appendColumnQuestions(sql, columns);
+        appendColumnParameters(sql, columns);
         sql.append(")");
         return sql.toString();
     }
@@ -205,6 +232,12 @@ public class DmlStatement {
 
     protected String buildFromSql(String tableName, Column[] keyColumns) {
         StringBuilder sql = new StringBuilder(" from ").append(tableName).append(" where ");
+        appendColumnsEquals(sql, keyColumns, nullKeyValues, " and ");
+        return sql.toString();
+    }
+
+    protected String buildWhereSql(String tableName, Column[] keyColumns) {
+        StringBuilder sql = new StringBuilder("where ");
         appendColumnsEquals(sql, keyColumns, nullKeyValues, " and ");
         return sql.toString();
     }
@@ -263,10 +296,14 @@ public class DmlStatement {
     
     protected void appendColumnEquals(StringBuilder sql, Column column) {
         boolean textType = TypeMap.isTextType(column.getMappedTypeCode());
+        String parameter = "?";
+        if (namedParameters) {
+            parameter = ":" + column.getName();
+        }
         if (textType && isNotBlank(textColumnExpression)) {
-            sql.append(quote).append(column.getName()).append(quote).append(" = ").append(textColumnExpression.replace("$(columnName)", "?"));
+            sql.append(quote).append(column.getName()).append(quote).append(" = ").append(textColumnExpression.replace("$(columnName)", parameter));
         } else {
-            sql.append(quote).append(column.getName()).append(quote).append(" = ?");   
+            sql.append(quote).append(column.getName()).append(quote).append(" = ").append(parameter);
         } 
     }
 
@@ -290,26 +327,29 @@ public class DmlStatement {
         sql.append(quote).append(columnName).append(quote);
     }
 
-    protected void appendColumnQuestions(StringBuilder sql, Column[] columns) {
+    protected void appendColumnParameters(StringBuilder sql, Column[] columns) {
         if (columns != null) {
             for (int i = 0; i < columns.length; i++) {
                 if (columns[i] != null) {
-                    appendColumnQuestion(sql, columns[i]);
+                    appendColumnParameter(sql, columns[i]);
                 }
             }
-
             if (columns.length > 0) {
                 sql.replace(sql.length() - 1, sql.length(), "");
             }
         }
     }
     
-    protected void appendColumnQuestion(StringBuilder sql, Column column) {
+    protected void appendColumnParameter(StringBuilder sql, Column column) {
         boolean textType = TypeMap.isTextType(column.getMappedTypeCode());
+        String parameter="?";
+        if (namedParameters) {
+            parameter = ":" + column.getName();
+        }
         if (textType && isNotBlank(textColumnExpression)) {
-            sql.append(textColumnExpression.replace("$(columnName)", "?")).append(",");
+            sql.append(textColumnExpression.replace("$(columnName)", parameter)).append(",");
         } else {
-            sql.append("?").append(",");
+            sql.append(parameter).append(",");
         }
     }
 
@@ -494,7 +534,11 @@ public class DmlStatement {
     public boolean isUpsertSupported() {
         return false;
     }
-    
+        
+    public boolean isNamedParameters() {
+        return namedParameters;
+    }
+
     public String[] getLookupKeyData(Map<String, String> lookupDataMap) {
         Column[] lookupColumns = getKeys();
         if (lookupColumns != null && lookupColumns.length > 0) {

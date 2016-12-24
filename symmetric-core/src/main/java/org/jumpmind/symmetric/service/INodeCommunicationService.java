@@ -21,18 +21,17 @@
 package org.jumpmind.symmetric.service;
 
 import java.util.List;
+import java.util.Map;
 
 import org.jumpmind.symmetric.model.NodeCommunication;
-import org.jumpmind.symmetric.model.RemoteNodeStatuses;
 import org.jumpmind.symmetric.model.NodeCommunication.CommunicationType;
 import org.jumpmind.symmetric.model.RemoteNodeStatus;
+import org.jumpmind.symmetric.model.RemoteNodeStatuses;
 
 public interface INodeCommunicationService {
 
     public List<NodeCommunication> list(CommunicationType communicationType);
 
-    public void save(NodeCommunication nodeCommunication);
-    
     public NodeCommunication find(String nodeId, String channelId, CommunicationType communicationType);
 
     public boolean execute(NodeCommunication nodeCommunication, RemoteNodeStatuses statuses, INodeCommunicationExecutor executor);
@@ -41,7 +40,14 @@ public interface INodeCommunicationService {
 
     public void stop();
 
+    public void updateBatchToSendCounts(String nodeId, Map<String, Integer> batchesCountToQueues);
+    
+    public Map<String, Integer> parseQueueToBatchCounts(String channelToBatchCountsString);
+    
+    public void persistToTableForSnapshot();
+
     public interface INodeCommunicationExecutor {
         public void execute(NodeCommunication nodeCommunication, RemoteNodeStatus status);
     }
+    
 }

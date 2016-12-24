@@ -20,9 +20,7 @@
  */
 package org.jumpmind.symmetric.service.impl;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.jumpmind.symmetric.db.ISymmetricDialect;
 import org.jumpmind.symmetric.model.BatchAck;
@@ -50,7 +48,6 @@ import org.jumpmind.symmetric.service.IParameterService;
 import org.jumpmind.symmetric.statistic.IStatisticManager;
 import org.jumpmind.symmetric.transport.ITransportManager;
 import org.jumpmind.symmetric.transport.file.FileOutgoingTransport;
-import org.jumpmind.symmetric.web.WebConstants;
 
 public class OfflinePushService extends AbstractService implements IOfflinePushService, INodeCommunicationExecutor {
 
@@ -88,7 +85,7 @@ public class OfflinePushService extends AbstractService implements IOfflinePushS
 
     synchronized public RemoteNodeStatuses pushData(boolean force) {
         RemoteNodeStatuses statuses = new RemoteNodeStatuses(configurationService.getChannels(false));        
-        Node identity = nodeService.findIdentity(false);
+        Node identity = nodeService.findIdentity();
         if (identity != null && identity.isSyncEnabled()) {
             if (force || !clusterService.isInfiniteLocked(ClusterConstants.OFFLINE_PUSH)) {
                 List<NodeCommunication> nodes = nodeCommunicationService.list(CommunicationType.OFFLN_PUSH);
@@ -127,17 +124,18 @@ public class OfflinePushService extends AbstractService implements IOfflinePushS
     }
 
     private void pushToNode(Node remote, RemoteNodeStatus status) {
-        Node identity = nodeService.findIdentity(false);
+        Node identity = nodeService.findIdentity();
         FileOutgoingTransport transport = null;
         ProcessInfo processInfo = statisticManager.newProcessInfo(new ProcessInfoKey(
                 identity.getNodeId(), status.getChannelId(), remote.getNodeId(), ProcessType.OFFLINE_PUSH));
         
+        List<OutgoingBatch> extractedBatches = null;
         try {
             transport = (FileOutgoingTransport) transportManager.getPushTransport(remote, identity, null, null);
 
-            List<OutgoingBatch> extractedBatches = dataExtractorService.extract(processInfo, remote, status.getChannelId(), transport);
+            extractedBatches = dataExtractorService.extract(processInfo, remote, status.getChannelId(), transport);
             if (extractedBatches.size() > 0) {
-                log.info("Offline push data written for {}", remote);
+                log.info("Offline push data written for {} at {}", remote, transport.getOutgoingDir());
                 List<BatchAck> batchAcks = readAcks(extractedBatches, transport, transportManager, acknowledgeService);
                 status.updateOutgoingStatus(extractedBatches, batchAcks);
             }
@@ -147,6 +145,7 @@ public class OfflinePushService extends AbstractService implements IOfflinePushS
             }
         } catch (Exception ex) {
             processInfo.setStatus(Status.ERROR);
+            log.error("Failed to write offline file", ex);
         } finally {
             transport.close();
             transport.complete(processInfo.getStatus() == Status.OK);

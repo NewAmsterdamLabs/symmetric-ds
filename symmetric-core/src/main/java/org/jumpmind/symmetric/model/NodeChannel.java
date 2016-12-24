@@ -21,6 +21,7 @@
 package org.jumpmind.symmetric.model;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.util.Date;
 
 /**
@@ -35,8 +36,13 @@ public class NodeChannel implements Serializable {
     private NodeChannelControl nodeChannelControl;
 
     public NodeChannel() {
-        channel = new Channel();
+        this (new Channel());
+    }
+    
+    public NodeChannel(Channel channel) {
+        this.channel = channel;
         nodeChannelControl = new NodeChannelControl();
+        nodeChannelControl.setChannelId(channel.getChannelId());
     }
 
     public NodeChannel(String channelId) {
@@ -238,4 +244,18 @@ public class NodeChannel implements Serializable {
     public String getQueue() {
     	return this.channel.getQueue();
     }
+    
+    public BigDecimal getMaxKBytesPerSecond() {
+        return this.channel.getMaxKBytesPerSecond();
+    }
+
+    public void setMaxKBytesPerSecond(BigDecimal maxKBytesPerSecond) {
+        this.channel.setMaxKBytesPerSecond(maxKBytesPerSecond);
+    }
+    
+    @Override
+    public String toString() {
+        return "Channel: '" + getChannelId() + "' Node: '" + getNodeId() + "' " +  super.toString();
+    }
+
 }

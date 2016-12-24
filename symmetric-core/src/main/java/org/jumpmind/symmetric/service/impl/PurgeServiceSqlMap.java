@@ -31,10 +31,14 @@ public class PurgeServiceSqlMap extends AbstractSqlMap {
         
         // @formatter:off
         
+        putSql("minDataGapStartId", "select min(start_id) from $(data_gap)");
+        
         putSql("deleteExtractRequestSql", "delete from $(extract_request) where status=? and last_update_time < ? and "
                 + "0 = (select count(1) from $(outgoing_batch) where status != 'OK' and batch_id between $(extract_request).start_batch_id and $(extract_request).end_batch_id)");
         
         putSql("deleteRegistrationRequestSql", "delete from $(registration_request) where status in (?,?,?) and last_update_time < ?");
+        
+        putSql("deleteMonitorEventSql", "delete from $(monitor_event) where event_time < ?");
 
         putSql("selectOutgoingBatchRangeSql" ,
 "select min(batch_id) as min_id, max(batch_id) as max_id from $(outgoing_batch) where                         " + 
@@ -60,7 +64,7 @@ public class PurgeServiceSqlMap extends AbstractSqlMap {
         putSql("deleteStrandedData" ,
 "delete from $(data) where                                       " + 
 "  data_id between ? and ? and                                   " + 
-"  data_id < (select min(start_id) from $(data_gap)) and         " + 
+"  data_id < ? and         " + 
 "  create_time < ? and                                           " + 
 "  data_id not in (select e.data_id from $(data_event) e where   " + 
 "  e.data_id between ? and ?)                                    " );
@@ -100,7 +104,16 @@ public class PurgeServiceSqlMap extends AbstractSqlMap {
         putSql("purgeNodeHostStatsSql", "delete from $(node_host_stats) where start_time < ?");
                 
         putSql("purgeNodeHostJobStatsSql", "delete from $(node_host_job_stats) where start_time < ?");
-
+        
+        putSql("selectIncomingErrorsBatchIdsSql", "select distinct e.batch_id as batch_id from sym_incoming_error e LEFT OUTER JOIN sym_incoming_batch i ON e.batch_id = i.batch_id where i.batch_id IS NULL");
+        
+        putSql("deleteIncomingErrorsBatchIdsSql", "delete from sym_incoming_error where batch_id IN (?)");
+        
+        putSql("deleteOutgoingBatchByCreateTimeSql", "delete from sym_outgoing_batch where create_time < ?");
+        putSql("deleteDataEventByCreateTimeSql", "delete from sym_data_event where create_time < ?");
+        putSql("deleteDataByCreateTimeSql", "delete from sym_data where create_time < ?");
+        putSql("deleteExtractRequestByCreateTimeSql", "delete from sym_extract_request where create_time < ?");
+        
     }
 
 }

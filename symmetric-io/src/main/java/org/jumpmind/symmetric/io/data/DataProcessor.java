@@ -206,7 +206,7 @@ public class DataProcessor {
                 }
             }
             
-            if (System.currentTimeMillis() - ts > 60000) {
+            if (System.currentTimeMillis() - ts > 60000 && context.getWriter() != null) {
                 Statistics stats = context.getWriter().getStatistics().get(batch);
                 if (stats != null) {
                     log.info(
@@ -219,7 +219,7 @@ public class DataProcessor {
             }
             
             if (Thread.currentThread().isInterrupted()) {
-                throw new IoException("This  thread was interrupted");
+                throw new IoException("This thread was interrupted");
             }
         } while (currentData != null);
 

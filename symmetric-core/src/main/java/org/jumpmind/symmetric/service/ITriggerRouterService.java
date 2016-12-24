@@ -102,6 +102,8 @@ public interface ITriggerRouterService {
     
     public void deleteRouter(Router router);
     
+    public void deleteAllRouters();
+    
     public void saveRouter(Router router);
     
     public List<TriggerRouter> getAllTriggerRoutersForCurrentNode(String sourceNodeGroupId);
@@ -139,6 +141,8 @@ public interface ITriggerRouterService {
     public Set<TriggerRouter> getTriggerRouterForTableForCurrentNode(String catalog, String schema, String tableName, boolean refreshCache); 
 
     public TriggerRouter findTriggerRouterById(String triggerId, String routerId);
+    
+    public TriggerRouter findTriggerRouterById(String triggerId, String routerId, boolean refreshCache);
 
     public void inactivateTriggerHistory(TriggerHistory history);
 
@@ -162,6 +166,8 @@ public interface ITriggerRouterService {
     public void deleteTriggerRouter(TriggerRouter triggerRouter);
     
     public void deleteTriggerRouter(String triggerId, String routerId);
+    
+    public void deleteAllTriggerRouters();
     
     public void saveTriggerRouter(TriggerRouter triggerRouter, boolean updateTriggerRouterTableOnly);
     
@@ -188,6 +194,9 @@ public interface ITriggerRouterService {
     public Map<Integer, List<TriggerRouter>> fillTriggerRoutersByHistIdAndSortHist(
             String sourceNodeGroupId, String targetNodeGroupId, List<TriggerHistory> triggerHistories);
     
+    public Map<Integer, List<TriggerRouter>> fillTriggerRoutersByHistId(
+            String sourceNodeGroupId, String targetNodeGroupId, List<TriggerHistory> triggerHistories);
+
     public TriggerHistory findTriggerHistoryForGenericSync();
     
     public void clearCache();

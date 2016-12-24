@@ -33,6 +33,7 @@ import org.jumpmind.symmetric.model.DataEvent;
 import org.jumpmind.symmetric.model.DataGap;
 import org.jumpmind.symmetric.model.Node;
 import org.jumpmind.symmetric.model.OutgoingBatch.Status;
+import org.jumpmind.symmetric.model.ProcessInfo;
 import org.jumpmind.symmetric.model.TableReloadRequest;
 import org.jumpmind.symmetric.model.TableReloadRequestKey;
 import org.jumpmind.symmetric.model.TriggerHistory;
@@ -43,15 +44,19 @@ import org.jumpmind.symmetric.model.TriggerRouter;
  */
 public interface IDataService {
         
-    public void saveTableReloadRequest(TableReloadRequest request);
+    public void insertTableReloadRequest(TableReloadRequest request);
     
     public TableReloadRequest getTableReloadRequest(TableReloadRequestKey key);
     
+    public List<TableReloadRequest> getTableReloadRequestToProcess(final String sourceNodeId);
+        
     public String reloadNode(String nodeId, boolean reverseLoad, String createBy);
     
     public String reloadTable(String nodeId, String catalogName, String schemaName, String tableName);
 
     public String reloadTable(String nodeId, String catalogName, String schemaName, String tableName, String overrideInitialLoadSelect);
+
+    public void reloadMissingForeignKeyRows(String nodeId, long dataId);
 
     /**
      * Sends a SQL command to the remote node for execution by creating a SQL event that is synced like other data
@@ -65,8 +70,10 @@ public interface IDataService {
      */
     public String sendSQL(String nodeId, String catalogName, String schemaName, String tableName, String sql);
 
-    public void insertReloadEvents(Node targetNode, boolean reverse);
+    public void insertReloadEvents(Node targetNode, boolean reverse, ProcessInfo processInfo);
 
+    public void insertReloadEvents(Node targetNode, boolean reverse, List<TableReloadRequest> reloadRequests, ProcessInfo processInfo);
+    
     public boolean insertReloadEvent(TableReloadRequest request, boolean deleteAtClient);
     
     public long insertReloadEvent(ISqlTransaction transaction, Node targetNode,
@@ -143,11 +150,15 @@ public interface IDataService {
 
     public void deleteDataGap(ISqlTransaction transaction, DataGap gap);
     
+    public void deleteAllDataGaps(ISqlTransaction transaction);
+    
     public void deleteDataGap(DataGap gap);
     
     public void deleteCapturedConfigChannelData();
     
     public long findMaxDataId();
+    
+    public long findMinDataId();
     
     public ISqlReadCursor<Data> selectDataFor(Batch batch);
     

@@ -23,12 +23,16 @@ package org.jumpmind.symmetric.service;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.jumpmind.db.sql.ISqlTransaction;
-import org.jumpmind.symmetric.model.OutgoingLoadSummary;
+import org.jumpmind.symmetric.model.LoadSummary;
 import org.jumpmind.symmetric.model.OutgoingBatch;
 import org.jumpmind.symmetric.model.OutgoingBatchSummary;
 import org.jumpmind.symmetric.model.OutgoingBatches;
+import org.jumpmind.symmetric.model.OutgoingLoadSummary;
+import org.jumpmind.symmetric.service.impl.OutgoingBatchService.LoadStatusSummary;
 
 /**
  * This service provides an API to access to the outgoing batch table. 
@@ -42,6 +46,8 @@ public interface IOutgoingBatchService {
     public void markAllConfigAsSentForNode(String nodeId);
     
     public void markAllChannelAsSent(String channelId);
+    
+    public void markAllChannelAsSent(String channelId, String tableName);
 
     public void updateAbandonedRoutingBatches();
 
@@ -85,18 +91,30 @@ public interface IOutgoingBatchService {
     
     public int countOutgoingBatchesInError(String channelId);
     
-    public int countOutgoingBatchesUnsent(String channelId);    
+    public int countOutgoingBatchesUnsent(String channelId);
+        
+    public Map<String, Integer> countOutgoingBatchesPendingByChannel(String nodeId);
     
     public List<OutgoingBatchSummary> findOutgoingBatchSummary(OutgoingBatch.Status ... statuses);
     
     public int countOutgoingBatches(List<String> nodeIds, List<String> channels,
-            List<OutgoingBatch.Status> statuses);
+            List<OutgoingBatch.Status> statuses, List<String> loads);
     
     public List<OutgoingBatch> listOutgoingBatches(List<String> nodeIds, List<String> channels,
-            List<OutgoingBatch.Status> statuses, long startAtBatchId, int rowsExpected, boolean ascending);
+            List<OutgoingBatch.Status> statuses, List<String> loads, long startAtBatchId, int rowsExpected, boolean ascending);
     
     public List<OutgoingLoadSummary> getLoadSummaries(boolean activeOnly);
+
+    public Set<Long> getActiveLoads(String sourceNodeId);
+    
+    public List<String> getQueuedLoads(String sourceNodeId);
+    
+    public LoadSummary getLoadSummary(long loadId);
+    
+    public Map<String, Map<String, LoadStatusSummary>> getLoadStatusSummarySql(long loadId);
     
     public void copyOutgoingBatches(String channelId, long startBatchId, String fromNodeId, String toNodeId);
+    
+    public List<Long> getAllBatches();
 
 }

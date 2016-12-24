@@ -103,15 +103,14 @@ public class PushService extends AbstractOfflineDetectorService implements IPush
     synchronized public RemoteNodeStatuses pushData(boolean force) {
         RemoteNodeStatuses statuses = new RemoteNodeStatuses(configurationService.getChannels(false));
         
-        Node identity = nodeService.findIdentity(false);
+        Node identity = nodeService.findIdentity();
         if (identity != null && identity.isSyncEnabled()) {
             long minimumPeriodMs = parameterService.getLong(ParameterConstants.PUSH_MINIMUM_PERIOD_MS, -1);
             if (force || !clusterService.isInfiniteLocked(ClusterConstants.PUSH)) {
                     List<NodeCommunication> nodes = nodeCommunicationService
                             .list(CommunicationType.PUSH);
                     if (nodes.size() > 0) {
-                        NodeSecurity identitySecurity = nodeService.findNodeSecurity(identity
-                                .getNodeId());
+                        NodeSecurity identitySecurity = nodeService.findNodeSecurity(identity.getNodeId(), true);
                         if (identitySecurity != null) {
                             int availableThreads = nodeCommunicationService
                                     .getAvailableThreads(CommunicationType.PUSH);
@@ -156,23 +155,21 @@ public class PushService extends AbstractOfflineDetectorService implements IPush
                                 node);
                     }
                     reloadBatchesProcessed = status.getReloadBatchesProcessed();
-                    log.debug("Push requested for {} {}", node, 
-                    		" channel " + nodeCommunication.getQueue());
+                    log.debug("Push requested for node {} channel {}", node, nodeCommunication.getQueue());
                     pushToNode(node, status);
                     if (!status.failed() && status.getBatchesProcessed() > 0 
                             && status.getBatchesProcessed() != lastBatchCount) {
                         log.info(
-                                "Pushed data to {}. {} data and {} batches were processed",
+                                "Pushed data to node {}. {} data and {} batches were processed",
                                 new Object[] { node, status.getDataProcessed(),
                                         status.getBatchesProcessed()});
                     } else if (status.failed()) {
-                        log.info(
+                        log.debug(
                                 "There was a failure while pushing data to {}. {} data and {} batches were processed",
                                 new Object[] { node, status.getDataProcessed(),
                                         status.getBatchesProcessed()});                        
                     }
-                    log.debug("Push completed for {} {}", node, 
-                    		" channel " + nodeCommunication.getQueue());
+                    log.debug("Push completed for {} channel {}", node, nodeCommunication.getQueue());
                     lastBatchCount = status.getBatchesProcessed();
                 } while (status.getReloadBatchesProcessed() > reloadBatchesProcessed && !status.failed());
             } finally {
@@ -186,8 +183,8 @@ public class PushService extends AbstractOfflineDetectorService implements IPush
     }
 
     private void pushToNode(Node remote, RemoteNodeStatus status) {
-        Node identity = nodeService.findIdentity(false);
-        NodeSecurity identitySecurity = nodeService.findNodeSecurity(identity.getNodeId());
+        Node identity = nodeService.findIdentity();
+        NodeSecurity identitySecurity = nodeService.findNodeSecurity(identity.getNodeId(), true);
         IOutgoingWithResponseTransport transport = null;
         ProcessInfo processInfo = statisticManager.newProcessInfo(new ProcessInfoKey(identity
                 .getNodeId(), status.getChannelId(), remote.getNodeId(), ProcessType.PUSH_JOB));
@@ -208,8 +205,9 @@ public class PushService extends AbstractOfflineDetectorService implements IPush
             }
             
             if (processInfo.getStatus() != Status.ERROR) {
-                processInfo.setStatus(Status.OK);
+                processInfo.setStatus(Status.OK);            
             }
+            fireOnline(remote, status);
         } catch (Exception ex) {
             processInfo.setStatus(Status.ERROR);
             fireOffline(ex, remote, status);

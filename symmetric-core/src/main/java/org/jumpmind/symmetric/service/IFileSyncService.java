@@ -20,6 +20,7 @@
  */
 package org.jumpmind.symmetric.service;
 
+import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
@@ -49,6 +50,8 @@ public interface IFileSyncService {
     public void deleteFileTriggerRouter(String triggerId, String routerId);
 
     public void deleteFileTriggerRouter(FileTriggerRouter fileTriggerRouter);
+    
+    public void deleteAllFileTriggerRouters();
 
     public void deleteFileTrigger(FileTrigger fileTrigger);
 
@@ -75,5 +78,9 @@ public interface IFileSyncService {
     public void acknowledgeFiles(OutgoingBatch outgoingBatch);
     
     public boolean refreshFromDatabase();
+    
+    public File getControleFile(File file);
+    
+    public Object[] getStagingPathComponents(OutgoingBatch fileSyncBatch);
 
 }

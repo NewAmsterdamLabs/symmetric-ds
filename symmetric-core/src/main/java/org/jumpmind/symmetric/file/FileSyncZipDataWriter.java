@@ -81,7 +81,9 @@ public class FileSyncZipDataWriter implements IDataWriter {
         this.context = context;
     }
 
+    @Override
     public void close() {
+        // no-op as this is called at batch boundaries, but this writer can handle multiple batches.
     }
 
     public Map<Batch, Statistics> getStatistics() {
@@ -169,6 +171,15 @@ public class FileSyncZipDataWriter implements IDataWriter {
                         targetBaseDir = StringEscapeUtils.escapeJava(targetBaseDir);
 
                         command.append("targetBaseDir = \"").append(targetBaseDir).append("\";\n");
+                                                                                                             
+                        command.append("if (targetBaseDir.startsWith(\"${androidBaseDir}\")) {                      \n");
+                        command.append("    targetBaseDir = targetBaseDir.replace(\"${androidBaseDir}\", \"\");     \n");
+                        command.append("    targetBaseDir = androidBaseDir + targetBaseDir;                         \n");
+                        command.append("} else if (targetBaseDir.startsWith(\"${androidAppFilesDir}\")) {           \n");
+                        command.append("    targetBaseDir = targetBaseDir.replace(\"${androidAppFilesDir}\", \"\"); \n");
+                        command.append("    targetBaseDir = androidAppFilesDir + targetBaseDir;                     \n");
+                        command.append("}                                                                           \n");
+                        
                         command.append("processFile = true;\n");
                         command.append("sourceFileName = \"").append(snapshot.getFileName())
                                 .append("\";\n");
@@ -349,13 +360,15 @@ public class FileSyncZipDataWriter implements IDataWriter {
         } catch (IOException e) {
             throw new IoException(e);
         } finally {
-            stagedResource.close();
-            stagedResource.setState(IStagedResource.State.READY);
+            if (stagedResource != null) {                
+                stagedResource.close();
+                stagedResource.setState(IStagedResource.State.READY);
+            }
         }
     }
 
     public boolean readyToSend() {
         return byteCount > maxBytesToSync;
     }
-
+    
 }

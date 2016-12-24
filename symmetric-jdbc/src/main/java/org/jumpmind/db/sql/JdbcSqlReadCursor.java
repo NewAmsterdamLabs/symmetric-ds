@@ -49,16 +49,32 @@ public class JdbcSqlReadCursor<T> implements ISqlReadCursor<T> {
     protected int rowNumber;
     
     protected int originalIsolationLevel;
+    
+    protected ResultSetMetaData rsMetaData = null;
+    
+    protected int rsColumnCount;
 
+    protected IConnectionHandler connectionHandler;
+    
     public JdbcSqlReadCursor() {
+    }
+    
+    public JdbcSqlReadCursor(JdbcSqlTemplate sqlTemplate, ISqlRowMapper<T> mapper, String sql,
+            Object[] values, int[] types) {
+        this(sqlTemplate, mapper, sql, values, types, null);
     }
 
     public JdbcSqlReadCursor(JdbcSqlTemplate sqlTemplate, ISqlRowMapper<T> mapper, String sql,
-            Object[] values, int[] types) {
+            Object[] values, int[] types, IConnectionHandler connectionHandler) {
         this.sqlTemplate = sqlTemplate;
         this.mapper = mapper;
+        this.connectionHandler = connectionHandler;
+        
         try {
             c = sqlTemplate.getDataSource().getConnection();
+            if (this.connectionHandler != null) {
+                this.connectionHandler.before(c);
+            }
         	originalIsolationLevel = c.getTransactionIsolation();            
             autoCommitFlag = c.getAutoCommit();
             if (c.getTransactionIsolation() != sqlTemplate.getIsolationLevel()) {
@@ -72,7 +88,7 @@ public class JdbcSqlReadCursor<T> implements ISqlReadCursor<T> {
                 if (values != null) {
                     PreparedStatement pstmt = c.prepareStatement(sql,
                             sqlTemplate.getSettings().getResultSetType(),
-                            java.sql.ResultSet.CONCUR_READ_ONLY);
+                            ResultSet.CONCUR_READ_ONLY);
                     sqlTemplate.setValues(pstmt, values, types, sqlTemplate.getLobHandler()
                             .getDefaultHandler());
                     st = pstmt;                    
@@ -81,8 +97,8 @@ public class JdbcSqlReadCursor<T> implements ISqlReadCursor<T> {
                     rs = pstmt.executeQuery();
 
                 } else {
-                    st = c.createStatement(java.sql.ResultSet.TYPE_FORWARD_ONLY,
-                            java.sql.ResultSet.CONCUR_READ_ONLY);
+                    st = c.createStatement(sqlTemplate.getSettings().getResultSetType(),
+                            ResultSet.CONCUR_READ_ONLY);
                     st.setQueryTimeout(sqlTemplate.getSettings().getQueryTimeout());
                     st.setFetchSize(sqlTemplate.getSettings().getFetchSize());
                     rs = st.executeQuery(sql);
@@ -111,7 +127,12 @@ public class JdbcSqlReadCursor<T> implements ISqlReadCursor<T> {
     public T next() {
         try {
             while (rs!=null && rs.next()) {
-                Row row = getMapForRow(rs, sqlTemplate.getSettings().isReadStringsAsBytes());
+                if (rsMetaData == null) {
+                    rsMetaData = rs.getMetaData();
+                    rsColumnCount = rsMetaData.getColumnCount();
+                }
+                
+                Row row = getMapForRow(rs, rsMetaData, rsColumnCount, sqlTemplate.getSettings().isReadStringsAsBytes());
                 T value = mapper.mapRow(row);
                 if (value != null) {
                     return value;
@@ -123,19 +144,21 @@ public class JdbcSqlReadCursor<T> implements ISqlReadCursor<T> {
         }
     }
 
-    protected static Row getMapForRow(ResultSet rs, boolean readStringsAsBytes) throws SQLException {
-        ResultSetMetaData rsmd = rs.getMetaData();
-        int columnCount = rsmd.getColumnCount();
+    protected static Row getMapForRow(ResultSet rs, ResultSetMetaData argResultSetMetaData, 
+            int columnCount, boolean readStringsAsBytes) throws SQLException {
         Row mapOfColValues = new Row(columnCount);
         for (int i = 1; i <= columnCount; i++) {
-            String key = JdbcSqlTemplate.lookupColumnName(rsmd, i);
-            Object obj = JdbcSqlTemplate.getResultSetValue(rs, i, readStringsAsBytes);
+            String key = JdbcSqlTemplate.lookupColumnName(argResultSetMetaData, i);
+            Object obj = JdbcSqlTemplate.getResultSetValue(rs, argResultSetMetaData, i, readStringsAsBytes);
             mapOfColValues.put(key, obj);
         }
         return mapOfColValues;
     }
 
 	public void close() {
+	    if (this.connectionHandler != null) {
+	        this.connectionHandler.after(c);
+	    }
 		JdbcSqlTemplate.close(rs);
 		JdbcSqlTemplate.close(st);
 		JdbcSqlTemplate.close(autoCommitFlag, originalIsolationLevel, c);

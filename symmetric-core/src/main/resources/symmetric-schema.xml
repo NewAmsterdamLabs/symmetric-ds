@@ -43,6 +43,7 @@
         <column name="data_loader_type" type="VARCHAR" size="50" required="true" default="default" description="Identify the type of data loader this channel should use.  Allows for the default dataloader to be swapped out via configuration for more efficient platform specific data loaders."/>
         <column name="description" type="VARCHAR" size="255" description="Description on the type of data carried in this channel."/>
         <column name="queue" type="VARCHAR" size="25" default="default" required="true" description="User provided queue name for channel to operate on.  Creates multi-threaded channels.  Defaults to 'default' thread"/>
+        <column name="max_network_kbps" type="DECIMAL" size="10,3" default="0.000" required="true" description="The maximum network transfer rate in kilobytes per second.  Zero or negative means unlimited.  When throttling the channel, make sure the channel is on its own queue or within a queue of channels that are throttled at the same rate.  This is currently only implemented when staging is enabled."/>
         <column name="create_time" type="TIMESTAMP" description="Timestamp when this entry was created." />
         <column name="last_update_by" type="VARCHAR" size="50"  description="The user who last updated this entry." />
         <column name="last_update_time" type="TIMESTAMP" description="Timestamp when a user last updated this entry." />
@@ -73,7 +74,7 @@
 
     <table name="context" description="Context variables used by runtime services on a single node">
         <column name="name" type="VARCHAR" size="80" required="true" primaryKey="true" description="The name of the context variable."/>
-        <column name="value" type="LONGVARCHAR" description="The value of the context variable." />
+        <column name="context_value" type="LONGVARCHAR" description="The value of the context variable." />
         <column name="create_time" type="TIMESTAMP" description="Timestamp when this entry was created." />
         <column name="last_update_time" type="TIMESTAMP" description="Timestamp when emtry was last updated." />
     </table>
@@ -136,7 +137,7 @@
     <table name="extract_request" description="This table is used internally to request the extract of initial loads asynchronously when the initial load extract job is enabled.">
         <column name="request_id" type="BIGINT" required="true" primaryKey="true" description="Unique identifier for a request." />
         <column name="node_id" type="VARCHAR" size="50" required="true" description="The node_id of the batch being loaded." />
-       	<column name="channel_id" type="VARCHAR" size="128" description="The channel_id of the batch being loaded." />
+       	<column name="queue" type="VARCHAR" size="128" description="The channel queue name of the batch being loaded." />
         <column name="status" type="CHAR" size="2"  description="NE, OK" />
         <column name="start_batch_id" type="BIGINT" required="true" description="A load can be split across multiple batches.  This is the first of N batches the load will be split across." />
         <column name="end_batch_id" type="BIGINT" required="true" description="This is the last of N batches the load will be split across." />
@@ -246,7 +247,8 @@
         <column name="statement_count" type="BIGINT" required="true" default="0" description="The number of statements run to load this batch." />
         <column name="fallback_insert_count" type="BIGINT" required="true" default="0" description="The number of times an update was turned into an insert because the data was not already in the target database." />
         <column name="fallback_update_count" type="BIGINT" required="true" default="0" description="The number of times an insert was turned into an update because a data row already existed in the target database." />
-        <column name="ignore_count" type="BIGINT" required="true" default="0" description="The number of times a row was ignored." />
+        <column name="ignore_count" type="BIGINT" required="true" default="0" description="The number of times a batch was ignored." />
+        <column name="ignore_row_count" type="BIGINT" required="true" default="0" description="The number of times a row was ignored." />
         <column name="missing_delete_count" type="BIGINT" required="true" default="0" description="The number of times a delete did not affect the database because the row was already deleted." />
         <column name="skip_count" type="BIGINT" required="true" default="0" description="The number of times a batch was sent and skipped because it had already been loaded according to incoming_batch." />
         <column name="sql_state" type="VARCHAR" size="10"  description="For a status of error (ER), this is the XOPEN or SQL 99 SQL State." />
@@ -255,6 +257,7 @@
         <column name="last_update_hostname" type="VARCHAR" size="255"  description="The host name of the process that last did work on this batch." />
         <column name="last_update_time" type="TIMESTAMP"  description="Timestamp when a process last updated this entry." />
         <column name="create_time" type="TIMESTAMP"  description="Timestamp when this entry was created." />
+        <column name="summary" type="VARCHAR" size="255" description="A high level summary of what is included in a batch, often a list of table names." />
         <index name="idx_ib_time_status">
             <index-column name="create_time" />
             <index-column name="status" />
@@ -355,6 +358,8 @@
         <column name="total_fail_count" type="BIGINT"  default="0" description="The total number of failed communication attempts with the node." />
         <column name="total_success_millis" type="BIGINT"  default="0" description="The total amount of time spent during successful communication attempts with the node." />
         <column name="total_fail_millis" type="BIGINT"  default="0" description="The total amount of time spent during failed communication attempts with the node." />
+        <column name="batch_to_send_count" type="BIGINT"  default="0" description="The number of batches this node has queued for pull." />
+        <column name="node_priority" type="INTEGER"  default="0" description="Used to order nodes when initiating a pull operation. Can be used to move a node to the top of the list to pull from it as quickly as possible." />
     </table>
 
     <table name="node_channel_ctl" description="Used to ignore or suspend a channel. A channel that is ignored will have its data_events batched and they will immediately be marked as 'OK' without sending them. A channel that is suspended is skipped when batching data_events.">
@@ -517,19 +522,47 @@
         </foreign-key>
     </table>
 
-    <table name="notification" description="">
-        <column name="notification_id" type="VARCHAR" size="128" required="true" primaryKey="true"  description="Unique identifier for a notification." />
-        <column name="node_group_id" type="VARCHAR" size="50" description="The node group that this node belongs to, such as 'store'." />
-        <column name="external_id" type="VARCHAR" size="255" description="A domain-specific identifier for context within the local system. For example, the retail store number. "/>
-        <column name="type" type="VARCHAR" size="50" description="" />
-        <column name="enabled" type="BOOLEANINT" size="1" description="" />
-        <column name="threshold" type="BIGINT" description="" />
-        <column name="period" type="BIGINT" description="" />
-        <column name="sample_minutes" type="INTEGER" description="" />
-        <column name="window_minutes" type="INTEGER" description="" />
-        <column name="severity_level" type="INTEGER" description="" />
+    <table name="monitor" description="Defines monitors that will run periodically to look for problems in the system.">
+        <column name="monitor_id" type="VARCHAR" size="128" required="true" primaryKey="true"  description="Unique identifier for a monitor." />
+        <column name="node_group_id" type="VARCHAR" size="50" required="true" default="ALL" description="Target a specific node group to run this monitor.  Target all groups, use a value of 'ALL'." />
+        <column name="external_id" type="VARCHAR" size="255" required="true" default="ALL" description="Target a specific node by its external ID to run this monitor.  Target all nodes, use a value of 'ALL'. "/>
+        <column name="type" type="VARCHAR" size="50" required="true" description="Monitor type to execute.  Built-in types are cpu, disk, memory, batchError, batchUnsent, dataGap, and dataUnrouted." />
+        <column name="expression" type="LONGVARCHAR" description="An expression used by the monitor to set options specific to the monitor type." />
+        <column name="threshold" type="BIGINT" required="true" default="0" description="The minimum value returned when the monitor runs that will cause a monitor event to be recorded." />
+        <column name="run_period" type="INTEGER" required="true" default="0" description="Run this monitor periodically every number of seconds." />        
+        <column name="run_count" type="INTEGER" required="true" default="0" description="Average the value across a number of runs before checking threshold." />
+        <column name="severity_level" type="INTEGER" required="true" default="0" description="" />
+        <column name="enabled" type="BOOLEANINT" size="1" required="true" default="0" description="Whether or not this monitor is enabled for execution." />
         <column name="create_time" type="TIMESTAMP" description="Timestamp when this entry was created." />
-        <column name="last_update_by" type="VARCHAR" size="50"  description="The user who last updated this entry." />
+        <column name="last_update_by" type="VARCHAR" size="50" description="The user who last updated this entry." />
+        <column name="last_update_time" type="TIMESTAMP" description="Timestamp when a user last updated this entry." />
+    </table>
+
+    <table name="monitor_event" description="Records an event of when a system problem occurred.">
+        <column name="monitor_id" type="VARCHAR" size="128" required="true" primaryKey="true"  description="Unique identifier for a monitor that caused the event." />
+        <column name="node_id" type="VARCHAR" size="50" required="true" primaryKey="true" description="Unique identifier for the node that created the event." />
+        <column name="event_time" type="TIMESTAMP" required="true" primaryKey="true" description="Timestamp when the event was created." />
+        <column name="host_name" type="VARCHAR" size="60" description="Host name of the node that created the event." />
+        <column name="type" type="VARCHAR" size="50" required="true" description="Monitor type that detected the value recorded." />
+        <column name="threshold" type="BIGINT" required="true" default="0" description="Minimum value for the monitor to cause an event." />
+        <column name="event_value" type="BIGINT" required="true" default="0" description="Actual value detected by the monitor." />
+        <column name="event_count" type="INTEGER" required="true" default="0" description="Number of times this event has occurred and been updated." />
+        <column name="severity_level" type="INTEGER" required="true" default="0" description="Severity level configured for the monitor." />
+        <column name="is_resolved" type="BOOLEANINT" required="true" default="0" description="Whether an event is resolved because its value dropped below the threshold." />
+        <column name="is_notified" type="BOOLEANINT" required="true" default="0" description="Whether a notification was run." />
+        <column name="last_update_time" type="TIMESTAMP" description="Timestamp when the event was last updated." />
+    </table>
+
+    <table name="notification" description="Defines what notification to send when a monitor detects a problem in the system.">
+        <column name="notification_id" type="VARCHAR" size="128" required="true" primaryKey="true"  description="Unique identifier for a notification." />
+        <column name="node_group_id" type="VARCHAR" size="50" required="true" default="ALL" description="Target a specific node group to run this notification.  To target all groups, use a value of 'ALL'." />
+        <column name="external_id" type="VARCHAR" size="255" required="true" default="ALL" description="Target a specific node by its external ID to run this notification.  To target all nodes, use a value of 'ALL'. "/>
+        <column name="severity_level" type="INTEGER" required="true" default="0" description="Look for monitor events using this severity level or above.  To match all severity levels, use a value of 0." />
+        <column name="type" type="VARCHAR" size="50" required="true" description="Notification type that will send a message.  Built-in types are mail and log." />
+        <column name="expression" type="LONGVARCHAR" description="An expression used by the notification to set options specific to the notification type." />
+        <column name="enabled" type="BOOLEANINT" size="1" required="true" default="0" description="Whether or not this notication is enabled." />
+        <column name="create_time" type="TIMESTAMP" description="Timestamp when this entry was created." />
+        <column name="last_update_by" type="VARCHAR" size="50" description="The user who last updated this entry." />
         <column name="last_update_time" type="TIMESTAMP" description="Timestamp when a user last updated this entry." />
     </table>
 
@@ -572,6 +605,7 @@
         <column name="last_update_time" type="TIMESTAMP"  description="Timestamp when a process last updated this entry." />
         <column name="create_time" type="TIMESTAMP"  description="Timestamp when this entry was created." />
         <column name="create_by" type="VARCHAR" size="255" description="The user that created the batch.  A null value means that the system created the batch." />
+        <column name="summary" type="VARCHAR" size="255" description="A high level summary of what is included in a batch, often a list of table names." />
         <index name="idx_ob_node_status">
             <index-column name="node_id" />
             <index-column name="status" />
@@ -652,6 +686,7 @@
         <column name="min_value" type="BIGINT" required="true" default="1" description="Specify the minimum value of the sequence."/>
         <column name="max_value" type="BIGINT" required="true" default="9999999999" description="Specify the maximum value the sequence can generate."/>
         <column name="cycle" type="BOOLEANINT" size="1" default="0" description="Indicate whether the sequence should automatically cycle once a boundary is hit." />
+        <column name="cache_size" type="INTEGER" required="true" default="0" description="Specify the number of sequence numbers to acquire and cache when one is requested."/>
         <column name="create_time" type="TIMESTAMP" description="Timestamp when this entry was created." />
         <column name="last_update_by" type="VARCHAR" size="50" description="The user who last updated this entry." />
         <column name="last_update_time" type="TIMESTAMP" required="true" description="Timestamp when a user last updated this entry." />
@@ -662,13 +697,17 @@
         <column name="source_node_id" type="VARCHAR" size="50" required="true" primaryKey="true" description="Unique identifier for the node that will be the source of the table reload." />
         <column name="trigger_id" type="VARCHAR" size="128" required="true" primaryKey="true" description="Unique identifier for a trigger associated with the table reload. Note the trigger must be linked to the router." />
         <column name="router_id" type="VARCHAR" size="50" required="true" primaryKey="true" description="Unique description of the router associated with the table reload. Note the router must be linked to the trigger." />
+        <column name="create_time" type="TIMESTAMP" required="true" primaryKey="true" description="Timestamp when this entry was created." />
+        <column name="create_table" type="BOOLEANINT" size="1" required="true" default="0"  description="Flag that indicates that a table create script will be sent as part of the reload" />
+        <column name="delete_first" type="BOOLEANINT" size="1" required="true" default="0"  description="Flag that indicates that the table will be deleted before loading." />
         <column name="reload_select" type="LONGVARCHAR"  description="Overrides the initial load select." />
-        <column name="reload_delete_stmt" type="LONGVARCHAR"  description="Overrides the initial load delete statement." />
-        <column name="reload_enabled" type="BOOLEANINT" size="1" default="0"  description="Indicates that a reload should be queued up." />
+        <column name="before_custom_sql" type="LONGVARCHAR"  description="SQL Statement to run prior to loading the table" />
         <column name="reload_time" type="TIMESTAMP" required="false"  description="The timestamp when the reload was started for this node." />
-        <column name="create_time" type="TIMESTAMP" description="Timestamp when this entry was created." />
+        <column name="load_id" type="BIGINT" description="An id that ties multiple batches together to identify them as being part of a load." />
+        <column name="processed" type="BOOLEANINT" size="1" required="true" default="0"  description="Flag that indicates that this load was processed into batches." />
+        <column name="channel_id" type="VARCHAR" size="128" description="The channel that was specified as a source of the load." />
         <column name="last_update_by" type="VARCHAR" size="50"  description="The user who last updated this entry." />
-        <column name="last_update_time" type="TIMESTAMP" required="true"  description="Timestamp when a user last updated this entry." />
+        <column name="last_update_time" type="TIMESTAMP" required="true" description="Timestamp when a user last updated this entry." />
     </table>
 
     <table name="transform_table" description="Defines a data loader transformation which can be used to map arbitrary tables and columns to other tables and columns.">
@@ -683,8 +722,8 @@
         <column name="target_schema_name" type="VARCHAR" size="255" description="Optional name of the schema a target table is in. Only use this if the target table is not in the default schema." />
         <column name="target_table_name" type="VARCHAR" size="255" description="The name of the target table." />
         <column name="update_first" type="BOOLEANINT" size="1" default="0" description="If true, the target actions are attempted as updates first, regardless of whether the source operation was an insert or an update."/>
-        <column name="update_action" type="VARCHAR" size="255" required="false" default="UPDATE_COL" description="An action to take upon update of a row. Possible values are: DEL_ROW, UPD_ROW, INS_ROW or NONE." />
-        <column name="delete_action" type="VARCHAR" size="10" required="true" description="An action to take upon delete of a row. Possible values are: DEL_ROW, UPDATE_COL, or NONE." />
+        <column name="update_action" type="VARCHAR" size="255" required="true" default="UPDATE_COL" description="An action to take upon update of a row. Possible values are: DEL_ROW, UPD_ROW, INS_ROW or NONE." />
+        <column name="delete_action" type="VARCHAR" size="10" required="true" description="An action to take upon delete of a row. Possible values are: DEL_ROW, UPD_ROW, or NONE." />
         <column name="transform_order" type="INTEGER" required="true" default="1" description="Specifies the order in which to apply transforms if more than one target operation occurs."/>
         <column name="column_policy" type="VARCHAR" size="10" default="SPECIFIED" required="true" description="Specifies whether all columns need to be specified or whether they are implied.  Possible values are SPECIFIED or IMPLIED." />
         <column name="create_time" type="TIMESTAMP" description="Timestamp when this entry was created." />
@@ -737,10 +776,11 @@
         <column name="tx_id_expression" type="LONGVARCHAR"  description="Override the default expression for the transaction identifier that groups the data changes that were committed together." />
         <column name="channel_expression" type="LONGVARCHAR"  description="An expression that will be used to capture the channel id in the trigger.  This expression will only be used if the channel_id is set to 'dynamic.'" />        
         <column name="excluded_column_names" type="LONGVARCHAR"  description="Specify a comma-delimited list of columns that should not be synchronized from this table.  Note that if a primary key is found in this list, it will be ignored." />
+        <column name="included_column_names" type="LONGVARCHAR"  description="Specify a comma-delimited list of columns that should only be synchronized from this table.  Note that if a primary key is found in this list, it will be ignored." />
         <column name="sync_key_names" type="LONGVARCHAR"  description="Specify a comma-delimited list of columns that should be used as the key for synchronization operations.  By default, if not specified, then the primary key of the table will be used." />
         <column name="use_stream_lobs" type="BOOLEANINT" size="1" required="true" default="0"  description="Specifies whether to capture lob data as the trigger is firing or to stream lob columns from the source tables using callbacks during extraction. A value of 1 indicates to stream from the source via callback; a value of 0, lob data is captured by the trigger." />
         <column name="use_capture_lobs" type="BOOLEANINT" size="1" required="true" default="0" description="Provides a hint as to whether this trigger will capture big lobs data.  If set to 1 every effort will be made during data capture in trigger and during data selection for initial load to use lob facilities to extract and store data in the database.  On Oracle, this may need to be set to 1 to get around 4k concatenation errors during data capture and during initial load."/>
-        <column name="use_capture_old_data" type="BOOLEANINT" size="1" required="true" default="1" description="Indicates whether this trigger should capture and send the old data (previous state of the row before the change)."/>
+        <column name="use_capture_old_data" type="BOOLEANINT" size="1" required="true" default="1" description="Set this to 1 to capture old data.  Old data is used for conflict resolution and it also is used to calculate which columns have changed.  The software will only update changed columns when old data is captured."/>
         <column name="use_handle_key_updates" type="BOOLEANINT" size="1" required="true" default="0" description="Allows handling of primary key updates (SQLServer dialect only)"/>
         <column name="create_time" type="TIMESTAMP" required="true"  description="Timestamp when this entry was created." />
         <column name="last_update_by" type="VARCHAR" size="50"  description="The user who last updated this entry." />
@@ -771,6 +811,10 @@
         <column name="error_message" type="LONGVARCHAR" description="Record any errors or warnings that occurred when attempting to build the trigger." />
         <column name="create_time" type="TIMESTAMP" required="true"  description="Timestamp when this entry was created." />
         <column name="inactive_time" type="TIMESTAMP"  description="The date and time when a trigger was inactivated." />
+        <index name="idx_trigg_hist_1">
+            <index-column name="trigger_id"/>
+            <index-column name="inactive_time"/>
+        </index>
     </table>
 
     <table name="trigger_router" description="Map a trigger to a router.">

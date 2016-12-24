@@ -69,6 +69,16 @@ public class NodeService extends AbstractService implements INodeService {
 
     private long securityCacheTime;
 
+    private Map<String, Node> nodeCache = new HashMap<String, Node>();
+    
+    private long nodeCacheTime;
+    
+    private Map<String, List<Node>> sourceNodesCache = new HashMap<String, List<Node>>();
+    
+    private Map<String, List<Node>> targetNodesCache = new HashMap<String, List<Node>>();
+
+    private long nodeLinkCacheTime;
+
     private INodePasswordFilter nodePasswordFilter;
 
     private NodeHost nodeHostForCurrentNode = null;
@@ -136,8 +146,27 @@ public class NodeService extends AbstractService implements INodeService {
      * with it.
      */
     public Node findNode(String id) {
-        return findAllNodesAsMap().get(id);
+        List<Node> list = sqlTemplate.query(getSql("selectNodePrefixSql", "findNodeSql"),
+        new NodeRowMapper(), id);
+        return (Node) getFirstEntry(list);
     } 
+
+    public Node findNode(String id, boolean useCache) {
+        if (useCache) {
+            long cacheTimeoutInMs = parameterService.getLong(ParameterConstants.CACHE_TIMEOUT_NODE_IN_MS);
+            if ((System.currentTimeMillis() - nodeCacheTime) >= cacheTimeoutInMs) {
+                nodeCache = findAllNodesAsMap();
+                nodeCacheTime = System.currentTimeMillis();
+            }
+            return nodeCache.get(id);
+        } else {
+            return findAllNodesAsMap().get(id);
+        }
+    }
+
+    public void flushNodeCache() {
+        nodeCacheTime = 0;
+    }
 
     public Node findNodeByExternalId(String nodeGroupId, String externalId) {
         List<Node> list = sqlTemplate.query(
@@ -154,22 +183,6 @@ public class NodeService extends AbstractService implements INodeService {
             sqlTemplate.update(getSql("insertNodeChannelControlSql"),
                     new Object[] { node.getNodeId(), channelId, enabled ? 1 : 0, 0 });
         }
-    }
-
-    public boolean isRegistrationEnabled(String nodeId) {
-        NodeSecurity nodeSecurity = findNodeSecurity(nodeId);
-        if (nodeSecurity != null) {
-            return nodeSecurity.isRegistrationEnabled();
-        }
-        return false;
-    }
-
-    /**
-     * Lookup a node_security in the database, which contains private
-     * information used to authenticate.
-     */
-    public NodeSecurity findNodeSecurity(String id) {
-        return findNodeSecurity(id, false);
     }
 
     public List<NodeHost> findNodeHosts(String nodeId) {
@@ -213,34 +226,6 @@ public class NodeService extends AbstractService implements INodeService {
         updateNodeHost(nodeHostForCurrentNode);
     }
 
-    public NodeSecurity findNodeSecurity(String nodeId, boolean createIfNotFound) {
-        try {
-            if (nodeId != null) {
-                List<NodeSecurity> list = sqlTemplate.query(getSql("findNodeSecuritySql"),
-                        new NodeSecurityRowMapper(), new Object[] { nodeId },
-                        new int[] { Types.VARCHAR });
-                NodeSecurity security = (NodeSecurity) getFirstEntry(list);
-                if (security == null && createIfNotFound) {
-                    insertNodeSecurity(nodeId);
-                    security = findNodeSecurity(nodeId, false);
-                }
-                return security;
-            } else {
-                log.debug("A 'null' node id was passed into findNodeSecurity");
-                return null;
-            }
-        } catch (UniqueKeyException ex) {
-            log.error(
-                    "Could not find a node security row for '{}'",
-                    nodeId);
-            throw ex;
-        }
-    }
-
-    public void deleteNodeSecurity(String nodeId) {
-        sqlTemplate.update(getSql("deleteNodeSecuritySql"), new Object[] { nodeId });
-    }
-
     public void deleteNode(String nodeId, boolean syncChange) {
         ISqlTransaction transaction = null;
         try {
@@ -282,14 +267,6 @@ public class NodeService extends AbstractService implements INodeService {
         }
     }
 
-    public void insertNodeSecurity(String id) {
-        flushNodeAuthorizedCache();
-        String password = extensionService.getExtensionPoint(INodeIdCreator.class).generatePassword(new Node(id, null, null));
-        password = filterPasswordOnSaveIfNeeded(password);
-        sqlTemplate.update(getSql("insertNodeSecuritySql"), new Object[] { id, password,
-                null });
-    }
-
     public void insertNodeIdentity(String nodeId) {
         sqlTemplate.update(getSql("insertNodeIdentitySql"), nodeId);
     }
@@ -327,6 +304,7 @@ public class NodeService extends AbstractService implements INodeService {
                             Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.TIMESTAMP,
                             Types.INTEGER, Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.VARCHAR,
                             Types.VARCHAR, Types.VARCHAR });
+            flushNodeGroupCache();
         }
     }
 
@@ -351,47 +329,6 @@ public class NodeService extends AbstractService implements INodeService {
             return list.get(0);
         }
         return null;
-    }
-
-    public List<NodeSecurity> findNodeSecurityWithLoadEnabled() {
-        return sqlTemplate.query(
-                getSql("findNodeSecurityWithLoadEnabledSql"), new NodeSecurityRowMapper());
-    }
-
-
-    public Map<String, NodeSecurity> findAllNodeSecurity(boolean useCache) {
-        long maxSecurityCacheTime = parameterService
-                .getLong(ParameterConstants.CACHE_TIMEOUT_NODE_SECURITY_IN_MS);
-        Map<String, NodeSecurity> all = securityCache;
-        if (all == null || System.currentTimeMillis() - securityCacheTime >= maxSecurityCacheTime
-                || securityCacheTime == 0 || !useCache) {
-            all = (Map<String, NodeSecurity>) sqlTemplate.queryForMap(
-                    getSql("findAllNodeSecuritySql"), new NodeSecurityRowMapper(), "node_id");
-            securityCache = all;
-            securityCacheTime = System.currentTimeMillis();
-        }
-        return all;
-    }
-
-    /**
-     * Check that the given node and password match in the node_security table.
-     * A node must authenticate before it's allowed to sync data.
-     */
-    public boolean isNodeAuthorized(String nodeId, String password) {
-        Map<String, NodeSecurity> nodeSecurities = findAllNodeSecurity(true);
-        NodeSecurity nodeSecurity = nodeSecurities.get(nodeId);
-        if (nodeSecurity != null
-                && !nodeId.equals(findIdentityNodeId()) && ((nodeSecurity.getNodePassword() != null
-                        && !nodeSecurity.getNodePassword().equals("") && nodeSecurity
-                        .getNodePassword().equals(password)) || nodeSecurity
-                            .isRegistrationEnabled())) {
-            return true;
-        }
-        return false;
-    }
-
-    public void flushNodeAuthorizedCache() {
-        securityCacheTime = 0;
     }
 
     public Node getCachedIdentity() {
@@ -432,9 +369,16 @@ public class NodeService extends AbstractService implements INodeService {
 
     public List<Node> findSourceNodesFor(NodeGroupLinkAction eventAction) {
         Node node = findIdentity();
+        long cacheTimeoutInMs = parameterService.getLong(ParameterConstants.CACHE_TIMEOUT_NODE_GROUP_LINK_IN_MS);
         if (node != null) {
-            return sqlTemplate.query(getSql("selectNodePrefixSql", "findNodesWhoTargetMeSql"),
-                    new NodeRowMapper(), node.getNodeGroupId(), eventAction.name());
+            List<Node> list = sourceNodesCache.get(eventAction.name());
+            if (list == null || (System.currentTimeMillis() - nodeLinkCacheTime) >= cacheTimeoutInMs) {
+                list = sqlTemplate.query(getSql("selectNodePrefixSql", "findNodesWhoTargetMeSql"),
+                        new NodeRowMapper(), node.getNodeGroupId(), eventAction.name());
+                sourceNodesCache.put(eventAction.name(), list);
+                nodeLinkCacheTime = System.currentTimeMillis();
+            }
+            return list;
         } else {
             return Collections.emptyList();
         }
@@ -442,12 +386,24 @@ public class NodeService extends AbstractService implements INodeService {
 
     public List<Node> findTargetNodesFor(NodeGroupLinkAction eventAction) {
         Node node = findIdentity();
+        long cacheTimeoutInMs = parameterService.getLong(ParameterConstants.CACHE_TIMEOUT_NODE_GROUP_LINK_IN_MS);
         if (node != null) {
-            return sqlTemplate.query(getSql("selectNodePrefixSql", "findNodesWhoITargetSql"),
-                    new NodeRowMapper(), node.getNodeGroupId(), eventAction.name());
+            List<Node> list = targetNodesCache.get(eventAction.name());
+            if (list == null || (System.currentTimeMillis() - nodeLinkCacheTime) >= cacheTimeoutInMs) {
+                list = sqlTemplate.query(getSql("selectNodePrefixSql", "findNodesWhoITargetSql"),
+                        new NodeRowMapper(), node.getNodeGroupId(), eventAction.name());
+                targetNodesCache.put(eventAction.name(), list);
+                nodeLinkCacheTime = System.currentTimeMillis();
+            }
+            return list;
         } else {
             return Collections.emptyList();
         }
+    }
+
+    public void flushNodeGroupCache() {
+        sourceNodesCache = new HashMap<String, List<Node>>();
+        targetNodesCache = new HashMap<String, List<Node>>();
     }
 
     public List<String> findAllExternalIds() {
@@ -489,6 +445,118 @@ public class NodeService extends AbstractService implements INodeService {
         } else {
             return null;
         }
+    }
+
+    /**
+     * Lookup a node_security in the database, which contains private
+     * information used to authenticate.
+     */
+    public NodeSecurity findNodeSecurity(String id) {
+        return findNodeSecurity(id, false);
+    }
+
+    public NodeSecurity findNodeSecurity(String nodeId, boolean useCache) {
+        if (!parameterService.is(ParameterConstants.CLUSTER_LOCKING_ENABLED) && useCache) {
+            Map<String, NodeSecurity> nodeSecurities = findAllNodeSecurity(true);
+            return nodeSecurities.get(nodeId);
+        } else {
+            List<NodeSecurity> list = sqlTemplate.query(getSql("findNodeSecuritySql"),
+                    new NodeSecurityRowMapper(), new Object[] { nodeId },
+                    new int[] { Types.VARCHAR });
+            return getFirstEntry(list);
+        }
+    }
+
+    public NodeSecurity findOrCreateNodeSecurity(String nodeId) {
+        try {
+            if (nodeId != null) {
+                NodeSecurity security = findNodeSecurity(nodeId, false);
+                if (security == null) {
+                    insertNodeSecurity(nodeId);
+                    security = findNodeSecurity(nodeId, true);
+                }
+                return security;
+            } else {
+                log.debug("A 'null' node id was passed into findNodeSecurity");
+                return null;
+            }
+        } catch (UniqueKeyException ex) {
+            log.error(
+                    "Could not find a node security row for '{}'",
+                    nodeId);
+            throw ex;
+        }
+    }
+
+    public boolean isRegistrationEnabled(String nodeId) {
+        NodeSecurity nodeSecurity = findNodeSecurity(nodeId);
+        if (nodeSecurity != null) {
+            return nodeSecurity.isRegistrationEnabled();
+        }
+        return false;
+    }
+
+    public void insertNodeSecurity(String id) {
+        String password = extensionService.getExtensionPoint(INodeIdCreator.class).generatePassword(new Node(id, null, null));
+        password = filterPasswordOnSaveIfNeeded(password);
+        sqlTemplate.update(getSql("insertNodeSecuritySql"), new Object[] { id, password,
+                null });
+        flushNodeAuthorizedCache();
+    }
+
+    public void deleteNodeSecurity(String nodeId) {
+        sqlTemplate.update(getSql("deleteNodeSecuritySql"), new Object[] { nodeId });
+        flushNodeAuthorizedCache();
+    }
+
+    public List<NodeSecurity> findNodeSecurityWithLoadEnabled() {
+        if (parameterService.is(ParameterConstants.CLUSTER_LOCKING_ENABLED)) {
+            return sqlTemplate.query(
+                    getSql("findNodeSecurityWithLoadEnabledSql"), new NodeSecurityRowMapper());
+        } else {
+            List<NodeSecurity> list = new ArrayList<NodeSecurity>();
+            for (NodeSecurity nodeSecurity : findAllNodeSecurity(true).values()) {
+                if (nodeSecurity.isInitialLoadEnabled() || nodeSecurity.isRevInitialLoadEnabled()) {
+                    list.add(nodeSecurity);
+                }
+            }
+            return list;
+        }
+    }
+
+    public Map<String, NodeSecurity> findAllNodeSecurity(boolean useCache) {
+        long maxSecurityCacheTime = parameterService
+                .getLong(ParameterConstants.CACHE_TIMEOUT_NODE_SECURITY_IN_MS);
+        Map<String, NodeSecurity> all = securityCache;
+        if (all == null || System.currentTimeMillis() - securityCacheTime >= maxSecurityCacheTime
+                || securityCacheTime == 0 || !useCache) {
+            all = (Map<String, NodeSecurity>) sqlTemplate.queryForMap(
+                    getSql("findAllNodeSecuritySql"), new NodeSecurityRowMapper(), "node_id");
+            securityCache = all;
+            securityCacheTime = System.currentTimeMillis();
+        }
+        return all;
+    }
+
+    /**
+     * Check that the given node and password match in the node_security table.
+     * A node must authenticate before it's allowed to sync data.
+     */
+    public boolean isNodeAuthorized(String nodeId, String password) {
+        Map<String, NodeSecurity> nodeSecurities = findAllNodeSecurity(true);
+        NodeSecurity nodeSecurity = nodeSecurities.get(nodeId);
+        if (nodeSecurity != null
+                && !nodeId.equals(findIdentityNodeId()) && ((nodeSecurity.getNodePassword() != null
+                        && !nodeSecurity.getNodePassword().equals("") && nodeSecurity
+                        .getNodePassword().equals(password)) || nodeSecurity
+                            .isRegistrationEnabled())) {
+            return true;
+        }
+        return false;
+    }
+
+    public void flushNodeAuthorizedCache() {
+        securityCacheTime = 0;
     }
 
     public boolean updateNodeSecurity(NodeSecurity security) {
@@ -542,7 +610,7 @@ public class NodeService extends AbstractService implements INodeService {
             if (!syncChange) {
                 symmetricDialect.disableSyncTriggers(transaction, nodeId);
             }
-            NodeSecurity nodeSecurity = findNodeSecurity(nodeId, true);
+            NodeSecurity nodeSecurity = findOrCreateNodeSecurity(nodeId);
             if (nodeSecurity != null) {
                 nodeSecurity.setInitialLoadEnabled(initialLoadEnabled);
                 nodeSecurity.setInitialLoadId(loadId);
@@ -591,7 +659,7 @@ public class NodeService extends AbstractService implements INodeService {
                 symmetricDialect.disableSyncTriggers(transaction, nodeId);
             }
 
-            NodeSecurity nodeSecurity = findNodeSecurity(nodeId, true);
+            NodeSecurity nodeSecurity = findOrCreateNodeSecurity(nodeId);
             if (nodeSecurity != null) {
                 nodeSecurity.setRevInitialLoadEnabled(initialLoadEnabled);
                 nodeSecurity.setRevInitialLoadId(loadId);
@@ -653,26 +721,11 @@ public class NodeService extends AbstractService implements INodeService {
     public NodeStatus getNodeStatus() {
         long ts = System.currentTimeMillis();
         try {
-            class DataLoadStatus {
-                int initialLoadEnabled;
-                Date initialLoadTime;
-            }
-
-            List<DataLoadStatus> results = sqlTemplate.query(getSql("getDataLoadStatusSql"),
-                    new ISqlRowMapper<DataLoadStatus>() {
-                        public DataLoadStatus mapRow(Row rs) {
-                            DataLoadStatus status = new DataLoadStatus();
-                            status.initialLoadEnabled = rs.getInt("initial_load_enabled");
-                            status.initialLoadTime = rs.getDateTime("initial_load_time");
-                            return status;
-                        }
-                    });
-
-            if (results.size() > 0) {
-                DataLoadStatus status = results.get(0);
-                if (status.initialLoadEnabled == 1) {
+            NodeSecurity nodeSecurity = findNodeSecurity(findIdentityNodeId(), true);
+            if (nodeSecurity != null) {
+                if (nodeSecurity.isInitialLoadEnabled()) {
                     return NodeStatus.DATA_LOAD_STARTED;
-                } else if (status.initialLoadTime != null) {
+                } else if (nodeSecurity.getInitialLoadTime() != null) {
                     return NodeStatus.DATA_LOAD_COMPLETED;
                 }
             }

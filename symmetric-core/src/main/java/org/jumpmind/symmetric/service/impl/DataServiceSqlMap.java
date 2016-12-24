@@ -29,13 +29,22 @@ public class DataServiceSqlMap extends AbstractSqlMap {
     public DataServiceSqlMap(IDatabasePlatform platform, Map<String, String> replacementTokens) {
         super(platform, replacementTokens);
 
-        putSql("selectTableReloadRequest", "select reload_select, reload_delete_stmt, reload_enabled, reload_time, create_time, last_update_by, last_update_time from $(table_reload_request) where source_node_id=? and target_node_id=? and trigger_id=? and router_id=?");
+        putSql("selectTableReloadRequest", "select reload_select, before_custom_sql, reload_time, create_time, last_update_by, last_update_time from $(table_reload_request) where source_node_id=? and target_node_id=? and trigger_id=? and router_id=?");
         
-        putSql("insertTableReloadRequest", "insert into $(table_reload_request) (reload_select, reload_delete_stmt, reload_enabled, reload_time, create_time, last_update_by, last_update_time, source_node_id, target_node_id, trigger_id, router_id) values (?,?,?,?,?,?,?,?,?,?,?)");
+        putSql("insertTableReloadRequest", "insert into $(table_reload_request) (reload_select, before_custom_sql, create_time, last_update_by, last_update_time, source_node_id, target_node_id, trigger_id, router_id, create_table, delete_first) values (?,?,?,?,?,?,?,?,?,?,?)");
 
-        putSql("updateTableReloadRequest", "update $(table_reload_request) set reload_select=?, reload_delete_stmt=?, reload_enabled=?, reload_time=?, create_time=?, last_update_by=?, last_update_time=? where source_node_id=? and target_node_id=? and trigger_id=? and router_id=?");
+        putSql("updateTableReloadRequest", "update $(table_reload_request) set reload_select=?, before_custom_sql=?, reload_time=?, create_time=?, last_update_by=?, last_update_time=? where source_node_id=? and target_node_id=? and trigger_id=? and router_id=?");
         
         putSql("deleteTableReloadRequest", "delete from $(table_reload_request) where source_node_id=? and target_node_id=? and trigger_id=? and router_id=?");
+
+        putSql("selectTableReloadRequestToProcess", "select target_node_id, create_table, delete_first, reload_select, before_custom_sql, "
+                + " reload_time, channel_id, create_time, last_update_by, "
+                + " last_update_time, trigger_id, router_id "
+                + " from $(table_reload_request) "
+                + " where source_node_id=? and processed = 0 "
+                + " order by create_time, target_node_id");
+        
+        putSql("updateProcessedTableReloadRequest", "update $(table_reload_request) set load_id = ?, last_update_time = ?, processed = 1 where target_node_id = ? and source_node_id = ? and trigger_id = ? and router_id = ? and create_time = ?");
 
         // Note that the order by data_id is done appended in code
         putSql("selectEventDataToExtractSql",
@@ -57,6 +66,11 @@ public class DataServiceSqlMap extends AbstractSqlMap {
                         + "select d.data_id from $(data) d inner join                                                                 "
                         + "  $(data_event) e on d.data_id = e.data_id inner join $(outgoing_batch) o on o.batch_id=e.batch_id   "
                         + "  where o.batch_id = ? and o.node_id = ?                                                                                           ");
+
+        putSql("selectData",
+            "select data_id, table_name, event_type, row_data, pk_data, old_data, " +
+            "create_time, trigger_hist_id, channel_id, transaction_id, source_node_id, external_data, node_list, '' as router_id " +
+            "from $(data) where data_id = ?");
 
         putSql("selectMaxDataEventDataIdSql", ""
                 + "select max(data_id) from $(data_event)   ");
@@ -96,16 +110,20 @@ public class DataServiceSqlMap extends AbstractSqlMap {
 
         putSql("insertDataGapSql",
                 ""
-                        + "insert into $(data_gap) (status, last_update_hostname, start_id, end_id, last_update_time, create_time) values(?, ?, ?, ?, current_timestamp, current_timestamp)   ");
+                        + "insert into $(data_gap) (status, last_update_hostname, start_id, end_id, last_update_time, create_time) values(?, ?, ?, ?, ?, ?)   ");
 
         putSql("updateDataGapSql",
                 ""
-                        + "update $(data_gap) set status=?, last_update_hostname=?, last_update_time=current_timestamp where start_id=? and end_id=?   ");
+                        + "update $(data_gap) set status=?, last_update_hostname=?, last_update_time=? where start_id=? and end_id=?   ");
         
         putSql("deleteDataGapSql",
                         "delete from $(data_gap) where start_id=? and end_id=?   ");
+
+        putSql("deleteAllDataGapsSql", "delete from $(data_gap)");
+
+        putSql("selectMaxDataIdSql", "select max(data_id) from $(data)   ");
         
-        putSql("selectMaxDataIdSql", "" + "select max(data_id) from $(data)   ");
+        putSql("selectMinDataIdSql", "select min(data_id) from $(data)   ");
         
         putSql("deleteCapturedConfigChannelDataSql", "delete from $(data) where channel_id='config'");
         

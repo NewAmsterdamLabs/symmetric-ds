@@ -23,6 +23,7 @@ package org.jumpmind.db.platform;
 import org.jumpmind.db.model.Column;
 import org.jumpmind.db.model.Table;
 import org.jumpmind.db.platform.db2.Db2zOsDmlStatement;
+import org.jumpmind.db.platform.mssql.MsSqlDmlStatement;
 import org.jumpmind.db.platform.mysql.MySqlDmlStatement;
 import org.jumpmind.db.platform.oracle.OracleDmlStatement;
 import org.jumpmind.db.platform.postgresql.PostgreSqlDmlStatement;
@@ -89,12 +90,27 @@ final public class DmlStatementFactory {
             return new Db2zOsDmlStatement(dmlType, catalogName, schemaName, tableName, keys, columns,
                     nullKeyValues, ddlBuilder.getDatabaseInfo(),
                     ddlBuilder.isDelimitedIdentifierModeOn(), textColumnExpression);
+        } else if (databaseName.startsWith("mssql")) {
+            return new MsSqlDmlStatement(dmlType, catalogName, schemaName, tableName, keys, columns,
+                    nullKeyValues, ddlBuilder.getDatabaseInfo(),
+                    ddlBuilder.isDelimitedIdentifierModeOn(), textColumnExpression);
         } else {
             return new DmlStatement(dmlType, catalogName, schemaName, tableName, keys, columns,
                     nullKeyValues, ddlBuilder.getDatabaseInfo(),
                     ddlBuilder.isDelimitedIdentifierModeOn(), textColumnExpression);
         }
-
+    }
+    
+    public static DmlStatement createDmlStatement (String databaseName, DmlType dmlType,
+            String catalogName, String schemaName, String tableName, Column[] keys,
+            Column[] columns, boolean[] nullKeyValues, IDdlBuilder ddlBuilder, String textColumnExpression,
+            boolean namedParameters) {
+        
+        return new DmlStatement(dmlType, catalogName, schemaName, tableName, keys, columns,
+                nullKeyValues, ddlBuilder.getDatabaseInfo(),
+                ddlBuilder.isDelimitedIdentifierModeOn(), textColumnExpression,
+                namedParameters);
+        
     }
 
 }

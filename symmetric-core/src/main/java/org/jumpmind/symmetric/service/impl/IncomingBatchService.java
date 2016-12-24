@@ -84,15 +84,15 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
     }
 
     public int countIncomingBatchesInError() {
-        return sqlTemplate.queryForInt(getSql("countIncomingBatchesErrorsSql"));
+        return sqlTemplateDirty.queryForInt(getSql("countIncomingBatchesErrorsSql"));
     }
     
     public int countIncomingBatchesInError(String channelId) {
-        return sqlTemplate.queryForInt(getSql("countIncomingBatchesErrorsOnChannelSql"), channelId);
+        return sqlTemplateDirty.queryForInt(getSql("countIncomingBatchesErrorsOnChannelSql"), channelId);
     }
 
     public List<IncomingBatch> findIncomingBatchErrors(int maxRows) {
-        return sqlTemplate.query(
+        return sqlTemplateDirty.query(
                 getSql("selectIncomingBatchPrefixSql", "findIncomingBatchErrorsSql"), maxRows,
                 new IncomingBatchMapper());
     }
@@ -133,30 +133,32 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
     } 
 
     public List<Date> listIncomingBatchTimes(List<String> nodeIds, List<String> channels,
-            List<IncomingBatch.Status> statuses, boolean ascending) {
+            List<IncomingBatch.Status> statuses, List<String> loads, boolean ascending) {
 
-        String whereClause = buildBatchWhere(nodeIds, channels, statuses);
+        String whereClause = buildBatchWhere(nodeIds, channels, statuses, loads);
 
         Map<String, Object> params = new HashMap<String, Object>();
         params.put("NODES", nodeIds);
         params.put("CHANNELS", channels);
         params.put("STATUSES", toStringList(statuses));
-
+        params.put("LOADS", loads);
+        
         String sql = getSql("selectCreateTimePrefixSql", whereClause,
                 ascending ? " order by create_time" : " order by create_time desc");
         return sqlTemplate.query(sql, new DateMapper(), params);
     }
 
     public List<IncomingBatch> listIncomingBatches(List<String> nodeIds, List<String> channels,
-            List<IncomingBatch.Status> statuses, Date startAtCreateTime,
+            List<IncomingBatch.Status> statuses, List<String> loads, Date startAtCreateTime,
             final int maxRowsToRetrieve, boolean ascending) {
             Map<String, Object> params = new HashMap<String, Object>();
             params.put("NODES", nodeIds);
             params.put("CHANNELS", channels);
             params.put("STATUSES", toStringList(statuses));
             params.put("CREATE_TIME", startAtCreateTime);
+            params.put("LOADS", loads);
             
-            String where = buildBatchWhere(nodeIds, channels, statuses);
+            String where = buildBatchWhere(nodeIds, channels, statuses, loads);
 
             String createTimeLimiter = "";
             if (startAtCreateTime != null) {
@@ -170,7 +172,7 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
             String sql = getSql("selectIncomingBatchPrefixSql", where, createTimeLimiter,
                     ascending ? " order by create_time" : " order by create_time desc");
 
-            return sqlTemplate.query(sql, maxRowsToRetrieve, new IncomingBatchMapper(), params);
+            return sqlTemplateDirty.query(sql, maxRowsToRetrieve, new IncomingBatchMapper(), params);
 
     }
 
@@ -259,16 +261,16 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
 	                            batch.getFailedRowNumber(), batch.getFailedLineNumber(),
 	                            batch.getByteCount(), batch.getStatementCount(),
 	                            batch.getFallbackInsertCount(), batch.getFallbackUpdateCount(),
-	                            batch.getIgnoreCount(), batch.getMissingDeleteCount(),
+	                            batch.getIgnoreCount(), batch.getIgnoreRowCount(), batch.getMissingDeleteCount(),
 	                            batch.getSkipCount(), batch.getSqlState(), batch.getSqlCode(),
 	                            FormatUtils.abbreviateForLogging(batch.getSqlMessage()),
-	                            batch.getLastUpdatedHostName(), batch.getLastUpdatedTime() },
+	                            batch.getLastUpdatedHostName(), batch.getLastUpdatedTime(), batch.getSummary() },
 	                    new int[] { Types.NUMERIC, Types.VARCHAR, Types.VARCHAR, Types.CHAR,
 	                            Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
 	                            Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
-	                            Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
-	                            Types.VARCHAR, Types.NUMERIC, Types.VARCHAR, Types.VARCHAR,
-	                            Types.TIMESTAMP });
+	                            Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, 
+	                            Types.NUMERIC, Types.VARCHAR, Types.NUMERIC, Types.VARCHAR, 
+	                            Types.VARCHAR, Types.TIMESTAMP, Types.VARCHAR });
         	}
         }
     }
@@ -339,17 +341,17 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
                             batch.getDatabaseMillis(), batch.getFailedRowNumber(),
                             batch.getFailedLineNumber(), batch.getByteCount(),
                             batch.getStatementCount(), batch.getFallbackInsertCount(),
-                            batch.getFallbackUpdateCount(), batch.getIgnoreCount(),
+                            batch.getFallbackUpdateCount(), batch.getIgnoreCount(), batch.getIgnoreRowCount(),
                             batch.getMissingDeleteCount(), batch.getSkipCount(),
                             batch.getSqlState(), batch.getSqlCode(),
                             FormatUtils.abbreviateForLogging(batch.getSqlMessage()),
-                            batch.getLastUpdatedHostName(), batch.getLastUpdatedTime(),
+                            batch.getLastUpdatedHostName(), batch.getLastUpdatedTime(), batch.getSummary(),
                             batch.getBatchId(), batch.getNodeId() }, new int[] { Types.CHAR,
                             Types.SMALLINT, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
                             Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
                             Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
-                            Types.NUMERIC, Types.VARCHAR, Types.NUMERIC, Types.VARCHAR,
-                            Types.VARCHAR, Types.TIMESTAMP, symmetricDialect.getSqlTypeForIds(), Types.VARCHAR });
+                            Types.NUMERIC, Types.NUMERIC, Types.VARCHAR, Types.NUMERIC, Types.VARCHAR,
+                            Types.VARCHAR, Types.TIMESTAMP, Types.VARCHAR, symmetricDialect.getSqlTypeForIds(), Types.VARCHAR });
         }
         return count;
     }
@@ -360,9 +362,17 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
                 IncomingBatch.Status.OK.name());
         return ids;
     }
+    
+    @Override
+    public List<BatchId> getAllBatches() {
+        return sqlTemplateDirty.query(getSql("getAllBatchesSql"), new BatchIdMapper());
+    }
 
     class BatchIdMapper implements ISqlRowMapper<BatchId> {
         Map<String, BatchId> ids;
+        
+        public BatchIdMapper() {
+        }
 
         public BatchIdMapper(Map<String, BatchId> ids) {
             this.ids = ids;
@@ -372,7 +382,9 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
             BatchId batch = new BatchId();
             batch.setBatchId(rs.getLong("batch_id"));
             batch.setNodeId(rs.getString("node_id"));
-            ids.put(rs.getString("channel_id"), batch);
+            if (ids != null) {
+               ids.put(rs.getString("channel_id"), batch);
+            }
             return batch;
         }
     }
@@ -405,6 +417,7 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
             batch.setFallbackInsertCount(rs.getLong("fallback_insert_count"));
             batch.setFallbackUpdateCount(rs.getLong("fallback_update_count"));
             batch.setIgnoreCount(rs.getLong("ignore_count"));
+            batch.setIgnoreRowCount(rs.getLong("ignore_row_count"));
             batch.setMissingDeleteCount(rs.getLong("missing_delete_count"));
             batch.setSkipCount(rs.getLong("skip_count"));
             batch.setSqlState(rs.getString("sql_state"));
@@ -414,8 +427,10 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
             batch.setLastUpdatedTime(rs.getDateTime("last_update_time"));
             batch.setCreateTime(rs.getDateTime("create_time"));
             batch.setErrorFlag(rs.getBoolean("error_flag"));
+            batch.setSummary(rs.getString("summary"));
             return batch;
         }
     }
+
 
 }

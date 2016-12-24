@@ -39,6 +39,8 @@ final public class ParameterConstants {
 
     private static Map<String, ParameterMetaData> parameterMetaData = new DefaultParameterParser("/symmetric-default.properties").parse();
 
+    public final static String MINUTES_BEFORE_NODE_REPORTED_AS_OFFLINE = "console.report.as.offline.minutes";
+
     private ParameterConstants() {
     }
     
@@ -58,6 +60,13 @@ final public class ParameterConstants {
     public final static String START_STAGE_MGMT_JOB = "start.stage.management.job";
     public final static String START_WATCHDOG_JOB = "start.watchdog.job";
     public final static String START_NOTIFICATION_JOB = "start.notification.job";
+    public final static String START_MONITOR_JOB = "start.monitor.job";
+    public final static String START_OFFLINE_PULL_JOB = "start.offline.pull.job";
+    public final static String START_OFFLINE_PUSH_JOB = "start.offline.push.job";
+    public final static String START_REFRESH_CACHE_JOB = "start.refresh.cache.job";
+    public final static String START_FILE_SYNC_TRACKER_JOB = "start.file.sync.tracker.job";
+    public final static String START_FILE_SYNC_PUSH_JOB = "start.file.sync.push.job";
+    public final static String START_FILE_SYNC_PULL_JOB = "start.file.sync.pull.job";    
 
     public final static String PULL_THREAD_COUNT_PER_SERVER = "pull.thread.per.server.count";
     public final static String PULL_MINIMUM_PERIOD_MS = "pull.period.minimum.ms";
@@ -98,6 +107,7 @@ final public class ParameterConstants {
     public final static String AUTO_REGISTER_ENABLED = "auto.registration";
     public final static String AUTO_RELOAD_ENABLED = "auto.reload";
     public final static String AUTO_RELOAD_REVERSE_ENABLED = "auto.reload.reverse";
+    public final static String AUTO_RESOLVE_FOREIGN_KEY_VIOLATION = "auto.resolve.foreign.key.violation";
     public final static String AUTO_INSERT_REG_SVR_IF_NOT_FOUND = "auto.insert.registration.svr.if.not.found";
     public final static String AUTO_SYNC_CONFIGURATION = "auto.sync.configuration";
     public final static String AUTO_SYNC_CONFIGURATION_ON_INCOMING = "auto.sync.configuration.on.incoming";
@@ -133,7 +143,8 @@ final public class ParameterConstants {
     
     public final static String CREATE_TABLE_WITHOUT_DEFAULTS = "create.table.without.defaults";
     public final static String CREATE_TABLE_WITHOUT_FOREIGN_KEYS = "create.table.without.foreign.keys";
-
+    public final static String CREATE_TABLE_WITHOUT_PK_IF_SOURCE_WITHOUT_PK = "create.table.without.pk.if.source.without.pk";
+    
     public final static String STREAM_TO_FILE_ENABLED = "stream.to.file.enabled";
     public final static String STREAM_TO_FILE_THRESHOLD = "stream.to.file.threshold.bytes";
     public final static String STREAM_TO_FILE_TIME_TO_LIVE_MS = "stream.to.file.ttl.ms";
@@ -144,6 +155,7 @@ final public class ParameterConstants {
     public final static String CONCURRENT_RESERVATION_TIMEOUT = "http.concurrent.reservation.timeout.ms";
 
     public final static String OUTGOING_BATCH_PEEK_AHEAD_BATCH_COMMIT_SIZE = "outgoing.batches.peek.ahead.batch.commit.size";
+    public final static String OUTGOING_BATCH_COPY_TO_INCOMING_STAGING = "outgoing.batches.copy.to.incoming.staging";
     public final static String ROUTING_FLUSH_JDBC_BATCH_SIZE = "routing.flush.jdbc.batch.size";
     public final static String ROUTING_WAIT_FOR_DATA_TIMEOUT_SECONDS = "routing.wait.for.data.timeout.seconds";
     public final static String ROUTING_MAX_GAPS_TO_QUALIFY_IN_SQL = "routing.max.gaps.to.qualify.in.sql";
@@ -156,7 +168,11 @@ final public class ParameterConstants {
     public final static String ROUTING_DATA_READER_ORDER_BY_DATA_ID_ENABLED = "routing.data.reader.order.by.gap.id.enabled";
     public final static String ROUTING_DATA_READER_THRESHOLD_GAPS_TO_USE_GREATER_QUERY = "routing.data.reader.threshold.gaps.to.use.greater.than.query";
     public final static String ROUTING_LOG_STATS_ON_BATCH_ERROR = "routing.log.stats.on.batch.error";
+    public final static String ROUTING_COLLECT_STATS_UNROUTED = "routing.collect.stats.unrouted";
     public final static String ROUTING_USE_FAST_GAP_DETECTOR = "routing.use.fast.gap.detector";
+    public final static String ROUTING_DETECT_INVALID_GAPS = "routing.detect.invalid.gaps";
+    public final static String ROUTING_QUERY_CHANNELS_FIRST = "routing.query.channels.first";
+    public final static String ROUTING_MAX_GAP_CHANGES = "routing.max.gap.changes";
 
     public final static String INCOMING_BATCH_SKIP_DUPLICATE_BATCHES_ENABLED = "incoming.batches.skip.duplicates";
     @Deprecated
@@ -203,9 +219,11 @@ final public class ParameterConstants {
     public final static String TRANSPORT_HTTP_BASIC_AUTH_PASSWORD = "http.basic.auth.password";
     public final static String TRANSPORT_TYPE = "transport.type";
     public final static String TRANSPORT_MAX_BYTES_TO_SYNC = "transport.max.bytes.to.sync";
+    public final static String TRANSPORT_MAX_ERROR_MILLIS = "transport.max.error.millis";
 
     public final static String CACHE_TIMEOUT_GROUPLETS_IN_MS = "cache.grouplets.time.ms";
     public final static String CACHE_TIMEOUT_NODE_SECURITY_IN_MS = "cache.node.security.time.ms";
+    public final static String CACHE_TIMEOUT_NODE_IN_MS = "cache.node.time.ms";
     public final static String CACHE_TIMEOUT_TRIGGER_ROUTER_IN_MS = "cache.trigger.router.time.ms";
     public final static String CACHE_TIMEOUT_CHANNEL_IN_MS = "cache.channel.time.ms";
     public final static String CACHE_TIMEOUT_NODE_GROUP_LINK_IN_MS = "cache.node.group.link.time.ms";
@@ -213,6 +231,10 @@ final public class ParameterConstants {
     public final static String CACHE_TIMEOUT_LOAD_FILTER_IN_MS = "cache.load.filter.time.ms";
     public final static String CACHE_TIMEOUT_CONFLICT_IN_MS = "cache.conflict.time.ms";
     public final static String CACHE_TIMEOUT_TABLES_IN_MS = "cache.table.time.ms";
+    public final static String CACHE_TIMEOUT_MONITOR_IN_MS = "cache.monitor.time.ms";
+    public final static String CACHE_TIMEOUT_NOTIFICATION_IN_MS = "cache.notification.time.ms";
+    public final static String CACHE_CHANNEL_COMMON_BATCHES_IN_MS = "cache.channel.common.batches.time.ms";
+    public final static String CACHE_CHANNEL_DEFAULT_ROUTER_IN_MS = "cache.channel.default.router.time.ms";
 
     public final static String TRIGGER_UPDATE_CAPTURE_CHANGED_DATA_ONLY = "trigger.update.capture.changed.data.only.enabled";
     public final static String TRIGGER_CREATE_BEFORE_INITIAL_LOAD = "trigger.create.before.initial.load.enabled";
@@ -296,6 +318,10 @@ final public class ParameterConstants {
 
     public final static String FILE_SYNC_LOCK_WAIT_MS = "file.sync.lock.wait.ms";
 
+    public final static String FILE_SYNC_DELETE_CTL_FILE_AFTER_SYNC = "file.sync.delete.ctl.file.after.sync";
+    
+    public final static String FILE_SYNC_USE_CTL_AS_FILE_EXT = "file.sync.use.ctl.as.file.ext";
+    
     public final static String BSH_LOAD_FILTER_HANDLES_MISSING_TABLES = "bsh.load.filter.handles.missing.tables";
     
     public final static String BSH_TRANSFORM_GLOBAL_SCRIPT = "bsh.transform.global.script";
@@ -310,6 +336,8 @@ final public class ParameterConstants {
 
     public final static String MSSQL_TRIGGER_EXECUTE_AS = "mssql.trigger.execute.as";
     
+    public final static String MSSQL_TRIGGER_ORDER_FIRST = "mssql.trigger.order.first";
+    
     public final static String SQLITE_TRIGGER_FUNCTION_TO_USE = "sqlite.trigger.function.to.use";
     
     public final static String AS400_CAST_CLOB_TO = "as400.cast.clob.to";
@@ -321,6 +349,8 @@ final public class ParameterConstants {
     public final static String LOG_SLOW_SQL_THRESHOLD_MILLIS = "log.slow.sql.threshold.millis";
     
     public final static String LOG_SQL_PARAMETERS_INLINE = "log.sql.parameters.inline";
+    
+    public final static String SYNC_TRIGGERS_THREAD_COUNT_PER_SERVER = "sync.triggers.thread.count.per.server";
 
     public static final String SMTP_HOST = "smtp.host";
     public static final String SMTP_TRANSPORT = "smtp.transport";
@@ -330,9 +360,22 @@ final public class ParameterConstants {
     public static final String SMTP_PASSWORD = "smtp.password";
     public static final String SMTP_USE_STARTTLS = "smtp.starttls";    
     public static final String SMTP_USE_AUTH = "smtp.auth";
+    public static final String SMTP_ALLOW_UNTRUSTED_CERT = "smtp.allow.untrusted.cert";
 
-    public final static String CHANNEL_THREADING = "channel.threading.enabled";
+    public final static String MONITOR_EVENTS_CAPTURE_ENABLED = "monitor.events.capture.enabled";
+    
+    public final static String HYBRID_PUSH_PULL_ENABLED = "hybrid.push.pull.enabled";
+    
+    public final static String HYBRID_PUSH_PULL_TIMEOUT = "hybrid.push.pull.timeout.ms";
+    
+    public final static String HYBRID_PUSH_PULL_BUFFER_STATUS_UPDATES = "hybrid.push.pull.buffer.status.updates";
 
+    public final static String DBF_ROUTER_VALIDATE_HEADER = "dbf.router.validate.header";
+    
+    public final static String OUTGOING_BATCH_UPDATE_STATUS_MILLIS = "outgoing.batches.update.status.millis";
+    
+    public final static String FIREBIRD_EXTRACT_VARCHAR_ROW_OLD_PK_DATA = "firebird.extract.varchar.row.old.pk.data";
+    
     public static Map<String, ParameterMetaData> getParameterMetaData() {
         return parameterMetaData;
     }

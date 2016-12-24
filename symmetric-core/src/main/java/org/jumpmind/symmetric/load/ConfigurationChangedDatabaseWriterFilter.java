@@ -78,6 +78,12 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
     final String CTX_KEY_FLUSH_CONFLICTS_NEEDED = "FlushConflicts."
             + ConfigurationChangedDatabaseWriterFilter.class.getSimpleName() + hashCode();
 
+    final String CTX_KEY_FLUSH_NODE_SECURITY_NEEDED = "FlushNodeSecurity."
+            + ConfigurationChangedDatabaseWriterFilter.class.getSimpleName() + hashCode();
+
+    final String CTX_KEY_FLUSH_NODE_NEEDED = "FlushNode."
+            + ConfigurationChangedDatabaseWriterFilter.class.getSimpleName() + hashCode();
+
     final String CTX_KEY_RESTART_JOBMANAGER_NEEDED = "RestartJobManager."
             + ConfigurationChangedDatabaseWriterFilter.class.getSimpleName() + hashCode();
     
@@ -118,6 +124,8 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
         recordParametersFlushNeeded(context, table);
         recordJobManagerRestartNeeded(context, table, data);
         recordConflictFlushNeeded(context, table);
+        recordNodeSecurityFlushNeeded(context, table);
+        recordNodeFlushNeeded(context, table);
     }
     
     private void recordGroupletFlushNeeded(DataContext context, Table table) {
@@ -189,6 +197,18 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
     private void recordTransformFlushNeeded(DataContext context, Table table) {
         if (isTransformFlushNeeded(table)) {
             context.put(CTX_KEY_FLUSH_TRANSFORMS_NEEDED, true);
+        }
+    }
+
+    private void recordNodeSecurityFlushNeeded(DataContext context, Table table) {
+        if (matchesTable(table, TableConstants.SYM_NODE_SECURITY)) {
+            context.put(CTX_KEY_FLUSH_NODE_SECURITY_NEEDED, true);
+        }
+    }
+
+    private void recordNodeFlushNeeded(DataContext context, Table table) {
+        if (matchesTable(table, TableConstants.SYM_NODE)) {
+            context.put(CTX_KEY_FLUSH_NODE_NEEDED, true);
         }
     }
 
@@ -332,7 +352,19 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
             parameterService.rereadParameters();
             context.remove(CTX_KEY_FLUSH_PARAMETERS_NEEDED);
         }
-                
+
+        if (context.get(CTX_KEY_FLUSH_NODE_SECURITY_NEEDED) != null) {
+            log.info("About to refresh the cache of node security because new configuration came through the data loader");
+            nodeService.flushNodeAuthorizedCache();
+            context.remove(CTX_KEY_FLUSH_NODE_SECURITY_NEEDED);
+        }
+
+        if (context.get(CTX_KEY_FLUSH_NODE_NEEDED) != null) {
+            log.info("About to refresh the cache of nodes because new configuration came through the data loader");
+            nodeService.flushNodeCache();
+            context.remove(CTX_KEY_FLUSH_NODE_NEEDED);
+        }
+
         if (context.get(CTX_KEY_RESYNC_TABLE_NEEDED) != null
                 && parameterService.is(ParameterConstants.AUTO_SYNC_TRIGGERS)) {
             @SuppressWarnings("unchecked")

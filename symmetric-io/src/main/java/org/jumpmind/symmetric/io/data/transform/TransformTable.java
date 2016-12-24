@@ -265,7 +265,7 @@ public class TransformTable implements Cloneable {
                 action = TargetDmlAction.valueOf((String) result);
             }
             catch (Exception e) {
-                log.error(e.getMessage(), e);
+                throw new RuntimeException(e);
             }
         }
         return action;
@@ -365,11 +365,12 @@ public class TransformTable implements Cloneable {
                     boolean hasInsert = false;
                     boolean hasUpdate = false;
                     boolean hasDelete = false;
+                    String columnLowerCase = column.toLowerCase();
 
                     if (primaryKeyColumns != null) {
                         for (TransformColumn xCol : transformColumns) {
-                            if ((StringUtils.isNotBlank(xCol.getSourceColumnName()) && StringUtils.equalsIgnoreCase(xCol.getSourceColumnName(),column)) ||
-                                    StringUtils.isNotBlank(xCol.getTargetColumnName()) && StringUtils.equalsIgnoreCase(xCol.getTargetColumnName(),column)) {
+                            if ((StringUtils.isNotBlank(xCol.getSourceColumnName()) && columnLowerCase.equals(xCol.getSourceColumnNameLowerCase())) ||
+                                    StringUtils.isNotBlank(xCol.getTargetColumnName()) && columnLowerCase.equals(xCol.getTargetColumnNameLowerCase())) {
                                 if (xCol.includeOn == IncludeOnType.ALL) {
                                     hasInsert = hasUpdate = hasDelete = true;
                                     break;
@@ -412,10 +413,11 @@ public class TransformTable implements Cloneable {
                     boolean hasInsert = false;
                     boolean hasUpdate = false;
                     boolean hasDelete = false;
+                    String columnLowerCase = column.toLowerCase();
 
                     for (TransformColumn xCol : copiedVersion.transformColumns) {
-                        if ((StringUtils.isNotBlank(xCol.getSourceColumnName()) && StringUtils.equalsIgnoreCase(xCol.getSourceColumnName(),column)) ||
-                                (StringUtils.isNotBlank(xCol.getTargetColumnName()) && StringUtils.equalsIgnoreCase(xCol.getTargetColumnName(),column))) {
+                        if ((StringUtils.isNotBlank(xCol.getSourceColumnName()) && columnLowerCase.equals(xCol.getSourceColumnNameLowerCase())) ||
+                                (StringUtils.isNotBlank(xCol.getTargetColumnName()) && columnLowerCase.equals(xCol.getTargetColumnNameLowerCase()))) {
                             if (xCol.includeOn == IncludeOnType.ALL) {
                                 hasInsert = hasUpdate = hasDelete = true;
                                 break;

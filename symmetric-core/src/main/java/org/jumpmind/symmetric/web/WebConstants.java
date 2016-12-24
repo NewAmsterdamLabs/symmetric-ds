@@ -58,6 +58,8 @@ public class WebConstants {
     public static final int SC_SERVICE_UNAVAILABLE = 660;
     
     public static final int SC_SERVICE_BUSY = 670;
+    
+    public static final int SC_NO_CONTENT = 204;
 
     public static final String ACK_BATCH_NAME = "batch-";
 
@@ -108,6 +110,8 @@ public class WebConstants {
     public static final String SUSPENDED_CHANNELS = "Suspended-Channels";
 
     public static final String IGNORED_CHANNELS = "Ignored-Channels";
+    
+    public static final String BATCH_TO_SEND_COUNT = "Batch-To-Send-Count";
     
     public static final String THREAD_CHANNEL = "threadChannel";
 

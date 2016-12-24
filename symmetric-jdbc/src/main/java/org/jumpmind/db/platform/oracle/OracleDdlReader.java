@@ -30,9 +30,11 @@ import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,11 +44,17 @@ import org.jumpmind.db.model.Column;
 import org.jumpmind.db.model.ColumnTypes;
 import org.jumpmind.db.model.IIndex;
 import org.jumpmind.db.model.Table;
+import org.jumpmind.db.model.Trigger;
+import org.jumpmind.db.model.Trigger.TriggerType;
 import org.jumpmind.db.model.TypeMap;
 import org.jumpmind.db.platform.AbstractJdbcDdlReader;
 import org.jumpmind.db.platform.DatabaseMetaDataWrapper;
 import org.jumpmind.db.platform.IDatabasePlatform;
 import org.jumpmind.db.platform.IDdlBuilder;
+import org.jumpmind.db.sql.ISqlRowMapper;
+import org.jumpmind.db.sql.JdbcSqlTemplate;
+import org.jumpmind.db.sql.Row;
+import org.jumpmind.db.sql.SqlException;
 
 /*
  * Reads a database model from an Oracle 8 database.
@@ -392,6 +400,72 @@ public class OracleDdlReader extends AbstractJdbcDdlReader {
          * DatabaseMetaData.metaData.getColumns(null, null, "SYM\\_NODE", null)
          */
        return String.format("%s", tableName).replaceAll("\\_", "/_");
-       //return tableName;
     }
+    
+    public List<String> getTableNames(final String catalog, final String schema,
+    		final String[] tableTypes) {
+    	
+    	List<String> tableNames = new ArrayList<String>();
+    	
+    	JdbcSqlTemplate sqlTemplate = (JdbcSqlTemplate) platform.getSqlTemplate();
+    	
+    	StringBuilder sql = new StringBuilder("select TABLE_NAME from ALL_TABLES");
+    	Object[] params = null;
+    	if (isNotBlank(schema)) {
+    	    sql.append(" where OWNER=?");
+    	    params = new Object[] { schema };
+    	}
+    	tableNames = sqlTemplate.query(sql.toString(), new ISqlRowMapper<String>() {
+    		public String mapRow(Row row) {
+    			return row.getString("TABLE_NAME");
+    		}
+    	}, params);
+    	
+    	return tableNames;
+    }
+    
+    public List<Trigger> getTriggers(final String catalog, final String schema,
+			final String tableName) throws SqlException {
+		
+		List<Trigger> triggers = new ArrayList<Trigger>();
+
+		log.debug("Reading triggers for: " + tableName);
+		JdbcSqlTemplate sqlTemplate = (JdbcSqlTemplate) platform
+				.getSqlTemplate();
+		
+		String sql = "SELECT * FROM ALL_TRIGGERS "
+				+ "WHERE TABLE_NAME=? and OWNER=?";
+		triggers = sqlTemplate.query(sql, new ISqlRowMapper<Trigger>() {
+			public Trigger mapRow(Row row) {
+				Trigger trigger = new Trigger();
+				trigger.setName(row.getString("TRIGGER_NAME"));
+				trigger.setSchemaName(row.getString("OWNER"));
+				trigger.setTableName(row.getString("TABLE_NAME"));
+				trigger.setEnabled(Boolean.valueOf(row.getString("STATUS")));
+				trigger.setSource("create ");
+				String triggerType = row.getString("TRIGGERING_EVENT");
+				if (triggerType.equals("DELETE")
+						|| triggerType.equals("INSERT")
+						|| triggerType.equals("UPDATE")) {
+					trigger.setTriggerType(TriggerType.valueOf(triggerType));
+				}
+				trigger.setMetaData(row);
+				return trigger;
+			}
+		}, tableName, schema);
+		
+		for (final Trigger trigger : triggers) {
+			String name = trigger.getName();
+			String sourceSql = "select TEXT from all_source "
+							 + "where NAME=? order by LINE ";
+			sqlTemplate.query(sourceSql, new ISqlRowMapper<Trigger>() {
+				public Trigger mapRow(Row row) {
+					trigger.setSource(trigger.getSource()+"\n"+row.getString("TEXT"));;
+					return trigger;
+				}
+			}, name);
+		}
+		
+		return triggers;
+	}
 }

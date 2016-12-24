@@ -16,6 +16,10 @@ endif::pro[]
 
 include::manage/node-add.ad[]
 
+==== Load Data
+
+include::manage/node-load.ad[]
+
 ==== Control
 
 include::manage/node-control.ad[]
@@ -73,6 +77,8 @@ ifdef::pro[]
 include::manage/jvm-properties.ad[]
 include::manage/jvm-threads.ad[]
 endif::pro[]
+
+include::manage/monitors.ad[]
 
 include::manage/logging.ad[]
 

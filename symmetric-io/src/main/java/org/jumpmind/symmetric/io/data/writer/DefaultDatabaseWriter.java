@@ -22,6 +22,7 @@ package org.jumpmind.symmetric.io.data.writer;
 
 import java.io.StringReader;
 import java.lang.reflect.Method;
+import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -54,7 +55,6 @@ import org.jumpmind.symmetric.io.data.writer.Conflict.DetectConflict;
 import org.jumpmind.symmetric.io.data.writer.Conflict.DetectExpressionKey;
 import org.jumpmind.util.CollectionUtils;
 import org.jumpmind.util.FormatUtils;
-import org.jumpmind.util.LogSuppressor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,8 +71,6 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
     protected DmlStatement currentDmlStatement;
     
     protected Object[] currentDmlValues;
-    
-    protected static LogSuppressor logSuppressor = new LogSuppressor(log, 1);
 
     public DefaultDatabaseWriter(IDatabasePlatform platform) {
         this(platform, null, null);
@@ -176,6 +174,7 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
                         this.currentDmlStatement.getLookupKeyData(getLookupDataMap(data, conflict)));
                 long count = execute(data, values);
                 statistics.get(batch).increment(DataWriterStatisticConstants.INSERTCOUNT, count);
+                statistics.get(batch).increment(String.format("%s %s", targetTable.getName(), DataWriterStatisticConstants.INSERTCOUNT), count);
                 if (count > 0) {
                         return LoadStatus.SUCCESS;
                 } else {
@@ -196,7 +195,7 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
                     throw ex;
                 }
             }
-        } catch (SqlException ex) {
+        } catch (RuntimeException ex) {
             logFailureDetails(ex, data, true);
             throw ex;
         } finally {
@@ -230,8 +229,8 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
                                 lookupColumns.add(versionColumn);
                             } else {
                                 log.error(
-                                        "Could not find the timestamp/version column with the name {}.  Defaulting to using primary keys for the lookup.",
-                                        conflict.getDetectExpression());
+                                        "Could not find the timestamp/version column with the name {} on table {}.  Defaulting to using primary keys for the lookup.",
+                                        conflict.getDetectExpression(), targetTable.getName());
                             }
                             Column[] pks = targetTable.getPrimaryKeyColumns();
                             for (Column column : pks) {
@@ -296,13 +295,14 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
                 lookupDataMap = lookupDataMap == null ? getLookupDataMap(data, conflict) : lookupDataMap;
                 long count = execute(data, this.currentDmlStatement.getLookupKeyData(lookupDataMap));
                 statistics.get(batch).increment(DataWriterStatisticConstants.DELETECOUNT, count);
+                statistics.get(batch).increment(String.format("%s %s", targetTable.getName(), DataWriterStatisticConstants.DELETECOUNT), count);
                 if (count > 0) {
                         return LoadStatus.SUCCESS;
                 } else {
                     context.put(CUR_DATA,null); // since a delete conflicted, there's no row to delete, so no cur data.
                     return LoadStatus.CONFLICT;
                 }
-            } catch (SqlException ex) {
+            } catch (RuntimeException ex) {
                 if (platform.getSqlTemplate().isUniqueKeyViolation(ex)
                         && !platform.getDatabaseInfo().isRequiresSavePointsInTransaction()) {
                     context.put(CUR_DATA,null); // since a delete conflicted, there's no row to delete, so no cur data.
@@ -378,8 +378,8 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
                                     lookupColumns.add(versionColumn);
                                 } else {
                                     log.error(
-                                            "Could not find the timestamp/version column with the name {}.  Defaulting to using primary keys for the lookup.",
-                                            conflict.getDetectExpression());
+                                            "Could not find the timestamp/version column with the name {} on table {}.  Defaulting to using primary keys for the lookup.",
+                                            conflict.getDetectExpression(), targetTable.getName());
                                 }
                                 pks = targetTable.getPrimaryKeyColumns();
                                 for (Column column : pks) {
@@ -459,6 +459,7 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
                     long count = execute(data, values);
                     statistics.get(batch)
                             .increment(DataWriterStatisticConstants.UPDATECOUNT, count);
+                    statistics.get(batch).increment(String.format("%s %s", targetTable.getName(), DataWriterStatisticConstants.UPDATECOUNT), count);
                     if (count > 0) {
                         return LoadStatus.SUCCESS;
                     } else {
@@ -482,7 +483,7 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
                 // There was no change to apply
                 return LoadStatus.SUCCESS;
             }
-        } catch (SqlException ex) {
+        } catch (RuntimeException ex) {
             logFailureDetails(ex, data, true);
             throw ex;
         } finally {
@@ -643,7 +644,7 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
     @Override
     protected void logFailureDetails(Throwable e, CsvData data, boolean logLastDmlDetails) {
         StringBuilder failureMessage = new StringBuilder();
-        failureMessage.append("Failed to process a ");
+        failureMessage.append("Failed to process ");
         failureMessage.append(data.getDataEventType().toString().toLowerCase());
         failureMessage.append(" event in batch ");
         failureMessage.append(batch.getBatchId());
@@ -663,12 +664,17 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
             failureMessage.append(Arrays.toString(this.currentDmlStatement.getTypes()));
             failureMessage.append("\n");
         }
+        
+        if (logLastDmlDetails && e instanceof SqlException && e.getCause() instanceof SQLException) {
+            SQLException se = (SQLException) e.getCause();
+            failureMessage.append("Failed sql state and code: ").append(se.getSQLState());
+            failureMessage.append(" (").append(se.getErrorCode()).append(")");
+            failureMessage.append("\n");
+        }
 
         data.writeCsvDataDetails(failureMessage);
-
-        String msg = failureMessage.toString();
-        logSuppressor.logInfo(msg, msg, null);
-
+        
+        log.info(failureMessage.toString(), e);
     }
     
     @Override
@@ -691,8 +697,20 @@ public class DefaultDatabaseWriter extends AbstractDatabaseWriter {
         SqlScriptReader scriptReader = new SqlScriptReader(new StringReader(script));
         try {
             String sql = scriptReader.readSqlStatement();
+            
             while (sql != null) {
-                sqlStatements.add(sql);
+            	if (StringUtils.startsWithIgnoreCase(sql,"delimiter")) {
+            		if (log.isDebugEnabled()) {
+            			log.debug("Found delimiter line: "+sql);
+            		}
+            		String delimiter = StringUtils.trimToNull(sql.substring("delimiter".length()));
+            		if (delimiter!=null) {
+            			scriptReader.setDelimiter(delimiter);
+            		}
+            	} else {
+                    sqlStatements.add(sql);
+            	}
+            	
                 sql = scriptReader.readSqlStatement();
             }
             return sqlStatements;

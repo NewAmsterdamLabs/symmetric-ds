@@ -21,10 +21,12 @@
 package org.jumpmind.symmetric.model;
 
 import java.io.Serializable;
+import java.io.StringReader;
 import java.util.Date;
 
 import org.jumpmind.db.model.Table;
 import org.jumpmind.symmetric.SymmetricException;
+import org.jumpmind.symmetric.csv.CsvReader;
 import org.jumpmind.symmetric.db.AbstractTriggerTemplate;
 import org.jumpmind.symmetric.io.data.DataEventType;
 
@@ -126,7 +128,7 @@ public class TriggerHistory implements Serializable {
         this.sourceCatalogName = trigger.isSourceCatalogNameWildCarded() ? table.getCatalog() : 
             trigger.getSourceCatalogName();
         this.triggerId = trigger.getTriggerId();
-        this.pkColumnNames = Table.getCommaDeliminatedColumns(trigger.filterExcludedColumns(trigger
+        this.pkColumnNames = Table.getCommaDeliminatedColumns(trigger.filterExcludedAndIncludedColumns(trigger
                 .getSyncKeysColumnsForTable(table)));
         this.triggerRowHash = trigger.toHashedValue();
         this.triggerTemplateHash = triggerTemplate.toHashedValue();
@@ -156,7 +158,7 @@ public class TriggerHistory implements Serializable {
 
     public String[] getParsedColumnNames() {
         if (parsedColumnNames == null && columnNames != null) {
-            parsedColumnNames = columnNames.split(",");
+            parsedColumnNames = parseColumnNames(columnNames);
         }
         return parsedColumnNames;
     }
@@ -177,7 +179,7 @@ public class TriggerHistory implements Serializable {
 
     public String[] getParsedPkColumnNames() {
         if (parsedPkColumnNames == null && pkColumnNames != null) {
-            parsedPkColumnNames = pkColumnNames.split(",");
+            parsedPkColumnNames = parseColumnNames(pkColumnNames);
         }
         return parsedPkColumnNames;
     }
@@ -331,5 +333,22 @@ public class TriggerHistory implements Serializable {
     public void setTriggerTemplateHash(long triggerTemplateHash) {
         this.triggerTemplateHash = triggerTemplateHash;
     }
+    
+    protected String[] parseColumnNames(String argColumnNames) {
+        if (argColumnNames.indexOf('"') == -1) {
+            return argColumnNames.split(",");
+        }
+        
+        try {            
+            CsvReader reader = new CsvReader(new StringReader(argColumnNames), ',');
+            if (reader.readRecord()) {
+                return reader.getValues();                
+            } else {
+                throw new SymmetricException("Failed to read a record from CsvReader.");
+            }
+        } catch (Exception ex) {
+            throw new SymmetricException("Failed to parse columns [" + argColumnNames + "]", ex);
+        }
+    }    
 
 }

@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,7 +65,7 @@ public class ConfigurationService extends AbstractService implements IConfigurat
 
     private long nodeGroupLinkCacheTime;
 
-    private List<Channel> defaultChannels;
+    private Map<String, Channel> defaultChannels;
     
     private Map<String, List<NodeGroupChannelWindow>> channelWindowsByChannelCache;
 
@@ -74,27 +75,43 @@ public class ConfigurationService extends AbstractService implements IConfigurat
             INodeService nodeService) {
         super(parameterService, dialect);
         this.nodeService = nodeService;
-        this.defaultChannels = new ArrayList<Channel>();
-        this.defaultChannels
-                .add(new Channel(Constants.CHANNEL_CONFIG, 0, 2000, 100, true, 0, true));
-        this.defaultChannels.add(new Channel(Constants.CHANNEL_RELOAD, 1, 1, 1, true, 0, false,
-                true, false));
-        this.defaultChannels.add(new Channel(Constants.CHANNEL_HEARTBEAT, 2, 100, 100, true, 0,
-                false));
-        this.defaultChannels.add(new Channel(Constants.CHANNEL_DEFAULT, 99999, 1000, 100, true, 0,
-                false));
-        this.defaultChannels.add(new Channel(Constants.CHANNEL_DYNAMIC, 99999, 1000, 100, true, 0,
-                false));
-        if (parameterService.is(ParameterConstants.FILE_SYNC_ENABLE)) {
-            this.defaultChannels.add(new Channel(Constants.CHANNEL_FILESYNC, 3, 100, 100, true, 0,
-                    false, "nontransactional", false, true));
-            this.defaultChannels.add(new Channel(Constants.CHANNEL_FILESYNC_RELOAD, 1, 100, 100,
-                    true, 0, false, "nontransactional", true, true));
-        }
+        
+        createDefaultChannels();
+        
         setSqlMap(new ConfigurationServiceSqlMap(symmetricDialect.getPlatform(),
                 createSqlReplacementTokens()));
     }
+
+    protected void createDefaultChannels() {
+        Map<String, Channel> updatedDefaultChannels = new LinkedHashMap<String, Channel>();
+        updatedDefaultChannels.put(Constants.CHANNEL_CONFIG, 
+                new Channel(Constants.CHANNEL_CONFIG, 0, 2000, 100, true, 0, true));
+        if (parameterService.is(ParameterConstants.INITIAL_LOAD_USE_EXTRACT_JOB)) {
+            updatedDefaultChannels.put(Constants.CHANNEL_RELOAD, 
+                    new Channel(Constants.CHANNEL_RELOAD, 1, 10000, 100, true, 0, false, true, false));
+        } else {
+            updatedDefaultChannels.put(Constants.CHANNEL_RELOAD, 
+                    new Channel(Constants.CHANNEL_RELOAD, 1, 1, 1, true, 0, false, true, false));
+        }
+                
+        updatedDefaultChannels.put(Constants.CHANNEL_HEARTBEAT, 
+                new Channel(Constants.CHANNEL_HEARTBEAT, 2, 100, 100, true, 0, false));
+        updatedDefaultChannels.put(Constants.CHANNEL_DEFAULT,
+                new Channel(Constants.CHANNEL_DEFAULT, 99999, 1000, 100, true, 0, false));
+        updatedDefaultChannels.put(Constants.CHANNEL_DYNAMIC, 
+                new Channel(Constants.CHANNEL_DYNAMIC, 99999, 1000, 100, true, 0, false));
+        
+        if (parameterService.is(ParameterConstants.FILE_SYNC_ENABLE)) {           
+            updatedDefaultChannels.put(Constants.CHANNEL_FILESYNC, 
+                    new Channel(Constants.CHANNEL_FILESYNC, 3, 100, 100, true, 0, false, "nontransactional", false, true));
+            updatedDefaultChannels.put(Constants.CHANNEL_FILESYNC_RELOAD, 
+                    new Channel(Constants.CHANNEL_FILESYNC_RELOAD, 1, 100, 100, true, 0, false, "nontransactional", true, true));
+        }
+        
+        this.defaultChannels = updatedDefaultChannels;
+    }
     
+    @Override
     public boolean isMasterToMaster() {
         boolean masterToMaster = false;
         Node me = nodeService.findIdentity();
@@ -104,6 +121,7 @@ public class ConfigurationService extends AbstractService implements IConfigurat
         return masterToMaster;
     }
 
+    @Override
     public boolean isMasterToMasterOnly() {
         boolean masterToMasterOnly = false;
         Node me = nodeService.findIdentity();
@@ -185,6 +203,10 @@ public class ConfigurationService extends AbstractService implements IConfigurat
                 link.getTargetNodeGroupId());
     }
 
+    public void deleteAllNodeGroupLinks() {
+        sqlTemplate.update(getSql("deleteAllNodeGroupLinksSql"));
+    }
+
     public List<NodeGroup> getNodeGroups() {
         return sqlTemplate.query(getSql("selectNodeGroupsSql"), new NodeGroupMapper());
     }
@@ -192,6 +214,7 @@ public class ConfigurationService extends AbstractService implements IConfigurat
     public List<NodeGroupLink> getNodeGroupLinks(boolean refreshCache) {
         if (refreshCache) {
             nodeGroupLinkCacheTime = 0;
+            nodeService.flushNodeGroupCache();
         }
         long cacheTimeoutInMs = parameterService
                 .getLong(ParameterConstants.CACHE_TIMEOUT_NODE_GROUP_LINK_IN_MS);
@@ -252,7 +275,7 @@ public class ConfigurationService extends AbstractService implements IConfigurat
                         channel.getExtractPeriodMillis(), channel.getDataLoaderType(),
                         channel.getLastUpdateTime(), channel.getLastUpdateBy(),
                         channel.isReloadFlag() ? 1 : 0, channel.isFileSyncFlag() ? 1 : 0,
-                        channel.getQueue(), 
+                        channel.getQueue(), channel.getMaxKBytesPerSecond(),
                         channel.getChannelId() })) {
             channel.setCreateTime(new Date());
             sqlTemplate.update(
@@ -267,7 +290,7 @@ public class ConfigurationService extends AbstractService implements IConfigurat
                             channel.getDataLoaderType(), channel.getLastUpdateTime(),
                             channel.getLastUpdateBy(), channel.getCreateTime(),
                             channel.isReloadFlag() ? 1 : 0, channel.isFileSyncFlag() ? 1 : 0, 
-                            channel.getQueue() });
+                            channel.getQueue(), channel.getMaxKBytesPerSecond() });
         }
         if (reloadChannels) {
             clearCache();
@@ -327,68 +350,19 @@ public class ConfigurationService extends AbstractService implements IConfigurat
 
     public List<NodeChannel> getNodeChannels(final String nodeId, boolean refreshExtractMillis) {
         boolean loaded = false;
-        long channelCacheTimeoutInMs = parameterService
-                .getLong(ParameterConstants.CACHE_TIMEOUT_CHANNEL_IN_MS);
-        List<NodeChannel> nodeChannels = nodeChannelCache != null ? nodeChannelCache.get(nodeId)
-                : null;
-        if (System.currentTimeMillis() - nodeChannelCacheTime >= channelCacheTimeoutInMs
-                || nodeChannels == null) {
+        long channelCacheTimeoutInMs = parameterService.getLong(ParameterConstants.CACHE_TIMEOUT_CHANNEL_IN_MS);
+        List<NodeChannel> nodeChannels = nodeChannelCache != null ? nodeChannelCache.get(nodeId) : null;
+        if (System.currentTimeMillis() - nodeChannelCacheTime >= channelCacheTimeoutInMs || nodeChannels == null) {
             synchronized (this) {
                 if (System.currentTimeMillis() - nodeChannelCacheTime >= channelCacheTimeoutInMs
-                        || nodeChannelCache == null || nodeChannelCache.get(nodeId) == null
-                        || nodeChannels == null) {
-                    if (System.currentTimeMillis() - nodeChannelCacheTime >= channelCacheTimeoutInMs
-                            || nodeChannelCache == null) {
+                        || nodeChannelCache == null || nodeChannelCache.get(nodeId) == null || nodeChannels == null) {
+                    if (System.currentTimeMillis() - nodeChannelCacheTime >= channelCacheTimeoutInMs || nodeChannelCache == null) {
                         nodeChannelCache = new HashMap<String, List<NodeChannel>>();
                         nodeChannelCacheTime = System.currentTimeMillis();
                     }
 
                     if (nodeId != null) {
-                        nodeChannels = sqlTemplate.query(getSql("selectNodeChannelsSql"),
-                                new ISqlRowMapper<NodeChannel>() {
-                                    public NodeChannel mapRow(Row row) {
-                                        NodeChannel nodeChannel = new NodeChannel();
-                                        nodeChannel.setChannelId(row.getString("channel_id"));
-                                        nodeChannel.setNodeId(nodeId);
-                                        nodeChannel.setIgnoreEnabled(row
-                                                .getBoolean("ignore_enabled"));
-                                        nodeChannel.setSuspendEnabled(row
-                                                .getBoolean("suspend_enabled"));
-                                        nodeChannel.setProcessingOrder(row
-                                                .getInt("processing_order"));
-                                        nodeChannel.setMaxBatchSize(row.getInt("max_batch_size"));
-                                        nodeChannel.setEnabled(row.getBoolean("enabled"));
-                                        nodeChannel.setMaxBatchToSend(row
-                                                .getInt("max_batch_to_send"));
-                                        nodeChannel.setMaxDataToRoute(row
-                                                .getInt("max_data_to_route"));
-                                        nodeChannel.setUseOldDataToRoute(row
-                                                .getBoolean("use_old_data_to_route"));
-                                        nodeChannel.setUseRowDataToRoute(row
-                                                .getBoolean("use_row_data_to_route"));
-                                        nodeChannel.setUsePkDataToRoute(row
-                                                .getBoolean("use_pk_data_to_route"));
-                                        nodeChannel.setContainsBigLob(row
-                                                .getBoolean("contains_big_lob"));
-                                        nodeChannel.setBatchAlgorithm(row
-                                                .getString("batch_algorithm"));
-                                        nodeChannel.setLastExtractTime(row
-                                                .getDateTime("last_extract_time"));
-                                        nodeChannel.setExtractPeriodMillis(row
-                                                .getLong("extract_period_millis"));
-                                        nodeChannel.setDataLoaderType(row
-                                                .getString("data_loader_type"));
-                                        nodeChannel.setCreateTime(row.getDateTime("create_time"));
-                                        nodeChannel.setLastUpdateBy(row.getString("last_update_by"));
-                                        nodeChannel.setLastUpdateTime(row
-                                                .getDateTime("last_update_time"));
-                                        nodeChannel.setFileSyncFlag(row
-                                                .getBoolean("file_sync_flag"));
-                                        nodeChannel.setReloadFlag(row.getBoolean("reload_flag"));
-                                        nodeChannel.setQueue(row.getString("queue"));
-                                        return nodeChannel;
-                                    };
-                                }, nodeId);
+                        nodeChannels = sqlTemplate.query(getSql("selectNodeChannelsSql"), new NodeChannelMapper(nodeId), nodeId);
                         nodeChannelCache.put(nodeId, nodeChannels);
                         loaded = true;
                     } else {
@@ -405,12 +379,15 @@ public class ConfigurationService extends AbstractService implements IConfigurat
              * and update it.
              */
             final Map<String, NodeChannel> nodeChannelsMap = new HashMap<String, NodeChannel>();
+            boolean usingExtractPeriod = false;
 
             for (NodeChannel nc : nodeChannels) {
                 nodeChannelsMap.put(nc.getChannelId(), nc);
+                usingExtractPeriod |= nc.getExtractPeriodMillis() > 0;
             }
 
-            sqlTemplate.query(getSql("selectNodeChannelControlLastExtractTimeSql"),
+            if (usingExtractPeriod) {
+                sqlTemplate.query(getSql("selectNodeChannelControlLastExtractTimeSql"),
                     new ISqlRowMapper<Object>() {
                         public Object mapRow(Row row) {
                             String channelId = row.getString("channel_id");
@@ -422,7 +399,7 @@ public class ConfigurationService extends AbstractService implements IConfigurat
                             return nodeChannelsMap;
                         };
                     }, nodeId);
-
+            }
         }
 
         return nodeChannels;
@@ -444,11 +421,14 @@ public class ConfigurationService extends AbstractService implements IConfigurat
         return NodeGroupLinkAction.fromCode(code);
     }
 
+    @Override
     public void initDefaultChannels() {
         if (defaultChannels != null) {
             clearCache();
+            createDefaultChannels();
             List<NodeChannel> channels = getNodeChannels(false);
-            for (Channel defaultChannel : defaultChannels) {
+            
+            for (Channel defaultChannel : defaultChannels.values()) {
                 Channel channel = defaultChannel.findInList(channels);
                 if (channel == null) {
                     log.info("Auto-configuring {} channel", defaultChannel.getChannelId());
@@ -489,7 +469,7 @@ public class ConfigurationService extends AbstractService implements IConfigurat
                     String nodeGroupId = parameterService.getNodeGroupId();
                     Set<String> channelIds = getChannels(false).keySet();
                     for (String id : channelIds) {
-                        channelWindowsByChannel.put(channelId, sqlTemplate.query(getSql("selectNodeGroupChannelWindowSql"),
+                        channelWindowsByChannel.put(id, sqlTemplate.query(getSql("selectNodeGroupChannelWindowSql"),
                                 new NodeGroupChannelWindowMapper(), nodeGroupId, id));
                     }
 
@@ -567,6 +547,7 @@ public class ConfigurationService extends AbstractService implements IConfigurat
                                     channel.setReloadFlag(row.getBoolean("reload_flag"));
                                     channel.setFileSyncFlag(row.getBoolean("file_sync_flag"));
                                     channel.setQueue(row.getString("queue"));
+                                    channel.setMaxKBytesPerSecond(row.getBigDecimal("max_network_kbps"));
                                     return channel;
                                 }
                             });
@@ -594,6 +575,16 @@ public class ConfigurationService extends AbstractService implements IConfigurat
     public ChannelMap getSuspendIgnoreChannelLists() {
         return getSuspendIgnoreChannelLists(nodeService.findIdentityNodeId());
 
+    }
+
+    public Map<String, String> getRegistrationRedirectMap() {
+        return this.sqlTemplate.queryForMap(getSql("getRegistrationRedirectSql"),
+                "registrant_external_id", "registration_node_id");
+    }
+    
+    @Override
+    public void updateLastExtractTime(NodeChannel channel) {
+        sqlTemplate.update(getSql("updateNodeChannelLastExtractTime"), channel.getLastExtractTime(), channel.getChannelId(), channel.getNodeId());
     }
 
     class NodeGroupChannelWindowMapper implements ISqlRowMapper<NodeGroupChannelWindow> {
@@ -634,14 +625,41 @@ public class ConfigurationService extends AbstractService implements IConfigurat
         }
     }
 
-    public Map<String, String> getRegistrationRedirectMap() {
-        return this.sqlTemplate.queryForMap(getSql("getRegistrationRedirectSql"),
-                "registrant_external_id", "registration_node_id");
-    }
-    
-    @Override
-    public void updateLastExtractTime(NodeChannel channel) {
-        sqlTemplate.update(getSql("updateNodeChannelLastExtractTime"), channel.getLastExtractTime(), channel.getChannelId(), channel.getNodeId());
+    class NodeChannelMapper implements ISqlRowMapper<NodeChannel> {
+        String nodeId;
+        
+        public NodeChannelMapper(String nodeId) {
+            this.nodeId = nodeId;
+        }
+
+        public NodeChannel mapRow(Row row) {
+            NodeChannel nodeChannel = new NodeChannel();
+            nodeChannel.setChannelId(row.getString("channel_id"));
+            nodeChannel.setNodeId(nodeId);
+            nodeChannel.setIgnoreEnabled(row.getBoolean("ignore_enabled"));
+            nodeChannel.setSuspendEnabled(row.getBoolean("suspend_enabled"));
+            nodeChannel.setProcessingOrder(row.getInt("processing_order"));
+            nodeChannel.setMaxBatchSize(row.getInt("max_batch_size"));
+            nodeChannel.setEnabled(row.getBoolean("enabled"));
+            nodeChannel.setMaxBatchToSend(row.getInt("max_batch_to_send"));
+            nodeChannel.setMaxDataToRoute(row.getInt("max_data_to_route"));
+            nodeChannel.setUseOldDataToRoute(row.getBoolean("use_old_data_to_route"));
+            nodeChannel.setUseRowDataToRoute(row.getBoolean("use_row_data_to_route"));
+            nodeChannel.setUsePkDataToRoute(row.getBoolean("use_pk_data_to_route"));
+            nodeChannel.setContainsBigLob(row.getBoolean("contains_big_lob"));
+            nodeChannel.setBatchAlgorithm(row.getString("batch_algorithm"));
+            nodeChannel.setLastExtractTime(row.getDateTime("last_extract_time"));
+            nodeChannel.setExtractPeriodMillis(row.getLong("extract_period_millis"));
+            nodeChannel.setDataLoaderType(row.getString("data_loader_type"));
+            nodeChannel.setCreateTime(row.getDateTime("create_time"));
+            nodeChannel.setLastUpdateBy(row.getString("last_update_by"));
+            nodeChannel.setLastUpdateTime(row.getDateTime("last_update_time"));
+            nodeChannel.setFileSyncFlag(row.getBoolean("file_sync_flag"));
+            nodeChannel.setReloadFlag(row.getBoolean("reload_flag"));
+            nodeChannel.setQueue(row.getString("queue"));
+            nodeChannel.setMaxKBytesPerSecond(row.getBigDecimal("max_network_kbps"));
+            return nodeChannel;
+        }
     }
 
 }

@@ -1,12 +1,16 @@
 package org.jumpmind.symmetric.route;
 
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.jumpmind.extension.IBuiltInExtensionPoint;
 import org.jumpmind.symmetric.ISymmetricEngine;
+import org.jumpmind.symmetric.common.ParameterConstants;
 import org.jumpmind.symmetric.route.parse.DBFReader;
 
 public class DBFRouter extends AbstractFileParsingRouter implements IDataRouter, IBuiltInExtensionPoint {
@@ -26,8 +30,13 @@ public class DBFRouter extends AbstractFileParsingRouter implements IDataRouter,
 	public List<String> parse(File file, int lineNumber) {
 		List<String> rows = new ArrayList<String>();
 		
+		InputStream fileInputStream = null;
 		try {
-			dbfReader = new DBFReader(new FileInputStream(file));
+			boolean validateHeader = engine.getParameterService()
+					.is(ParameterConstants.DBF_ROUTER_VALIDATE_HEADER, true);
+			
+			fileInputStream = Files.newInputStream(file.toPath(), StandardOpenOption.READ);
+			dbfReader = new DBFReader(fileInputStream, validateHeader);
 			int currentLine = 1;
 			while (dbfReader.hasNextRecord()) {
 				StringBuffer row = new StringBuffer();
@@ -44,7 +53,17 @@ public class DBFRouter extends AbstractFileParsingRouter implements IDataRouter,
 			}
 		}
 		catch (Exception e) {
-			
+			log.error("Unable to parse DBF file " + file.getName(), e);
+		}
+		finally {
+			if (fileInputStream != null) {
+				try {
+					fileInputStream.close();
+				}
+				catch (IOException ioe) {
+					log.error("Unable to close file " + file.getName(), ioe);
+				}
+			}
 		}
 		return rows;
 	}
@@ -59,7 +78,7 @@ public class DBFRouter extends AbstractFileParsingRouter implements IDataRouter,
 			}
 		}
 		catch (Exception e) {
-			
+			log.error("Unable to read column names for DBF file ", e);
 		}
 		return columns.toString();
 	}

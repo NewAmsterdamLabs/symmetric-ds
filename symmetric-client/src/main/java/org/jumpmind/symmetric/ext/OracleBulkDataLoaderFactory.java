@@ -25,7 +25,6 @@ import java.util.List;
 import org.jumpmind.db.platform.DatabaseNamesConstants;
 import org.jumpmind.db.platform.IDatabasePlatform;
 import org.jumpmind.db.sql.JdbcUtils;
-import org.jumpmind.extension.IBuiltInExtensionPoint;
 import org.jumpmind.symmetric.ISymmetricEngine;
 import org.jumpmind.symmetric.db.ISymmetricDialect;
 import org.jumpmind.symmetric.io.OracleBulkDatabaseWriter;
@@ -38,14 +37,15 @@ import org.jumpmind.symmetric.io.data.writer.TransformWriter;
 import org.jumpmind.symmetric.load.DefaultDataLoaderFactory;
 import org.springframework.jdbc.support.nativejdbc.NativeJdbcExtractor;
 
-public class OracleBulkDataLoaderFactory extends DefaultDataLoaderFactory implements ISymmetricEngineAware,
-        IBuiltInExtensionPoint {
+public class OracleBulkDataLoaderFactory extends DefaultDataLoaderFactory {
 
     private ISymmetricEngine engine;
     private NativeJdbcExtractor jdbcExtractor;
 
-    public OracleBulkDataLoaderFactory() {
+    public OracleBulkDataLoaderFactory(ISymmetricEngine engine) {
         this.jdbcExtractor = JdbcUtils.getNativeJdbcExtractory();
+        this.engine = engine;
+        this.parameterService = engine.getParameterService();
     }
 
     public String getTypeName() {
@@ -56,15 +56,9 @@ public class OracleBulkDataLoaderFactory extends DefaultDataLoaderFactory implem
             TransformWriter transformWriter, List<IDatabaseWriterFilter> filters,
             List<IDatabaseWriterErrorHandler> errorHandlers,
             List<? extends Conflict> conflictSettings, List<ResolvedData> resolvedData) {
-        int maxRowsBeforeFlush = engine.getParameterService().getInt(
-                "oracle.bulk.load.max.rows.before.flush", 1000);
+        int maxRowsBeforeFlush = parameterService.getInt("oracle.bulk.load.max.rows.before.flush", 1000);
         return new OracleBulkDatabaseWriter(symmetricDialect.getPlatform(), engine.getTablePrefix(),
                 jdbcExtractor, maxRowsBeforeFlush, buildDatabaseWriterSettings(filters, errorHandlers, conflictSettings, resolvedData));
-    }
-
-    public void setSymmetricEngine(ISymmetricEngine engine) {
-        this.engine = engine;
-        this.parameterService = engine.getParameterService();
     }
 
     public boolean isPlatformSupported(IDatabasePlatform platform) {

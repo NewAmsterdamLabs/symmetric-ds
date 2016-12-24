@@ -95,6 +95,8 @@ public interface ISymmetricDialect {
     
     public String createPurgeSqlFor(Node node, TriggerRouter triggerRouter, TriggerHistory triggerHistory, List<TransformTableNodeGroupLink> transforms);    
 
+    public String createPurgeSqlFor(Node node, TriggerRouter triggerRouter, TriggerHistory triggerHistory, List<TransformTableNodeGroupLink> transforms, String deleteSql);    
+
     public String createCsvDataSql(Trigger trigger, TriggerHistory triggerHistory, Channel channel, String whereClause);
 
     public String createCsvPrimaryKeySql(Trigger trigger, TriggerHistory triggerHistory, Channel channel, String whereClause);
@@ -114,6 +116,16 @@ public interface ISymmetricDialect {
      * a way to check on pending database transactions.
      */
     public boolean supportsTransactionViews();
+    
+    /*
+     * Indicates if this dialect supports subselects in delete statements.
+     */
+    public boolean supportsSubselectsInDelete();
+    
+    /*
+     * Indicates if this dialect supports subselects in update statements.
+     */
+    public boolean supportsSubselectsInUpdate();
 
     /*
      * Implement this if the database has some type of cleanup functionality

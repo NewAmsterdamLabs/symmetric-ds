@@ -102,6 +102,20 @@ public class Row extends LinkedCaseInsensitiveMap<Object> {
             return null;
         }
     }
+    
+    public Long longValue() {
+        Object obj = this.values().iterator().next();
+        if (obj != null) {
+            if (obj instanceof Long) {
+                return (Long)obj;
+            } else {
+                return new Long(obj.toString());    
+            }            
+        } else {
+            return null;
+        }        
+    }
+    
 
     public String stringValue() {
         Object obj = this.values().iterator().next();
@@ -168,6 +182,32 @@ public class Row extends LinkedCaseInsensitiveMap<Object> {
         } else {
             checkForColumn(columnName);
             return 0;
+        }
+    }
+
+    public float getFloat(String columnName) {
+        Object obj = this.get(columnName);
+        if (obj instanceof Number) {
+            return ((Number) obj).floatValue();
+        } else if (obj instanceof String) {
+            return Float.parseFloat(obj.toString());
+        } else {
+            checkForColumn(columnName);
+            return 0;
+        }
+    }
+
+    public BigDecimal getBigDecimal(String columnName) {
+        Object obj = this.get(columnName);
+        if (obj instanceof BigDecimal) {
+            return (BigDecimal) obj;
+        } else if (obj instanceof String) {
+            return new BigDecimal(obj.toString());
+        } else if (obj instanceof Integer) {
+            return new BigDecimal(((Integer)obj).intValue());
+        } else {
+            checkForColumn(columnName);
+            return null;
         }
     }
 

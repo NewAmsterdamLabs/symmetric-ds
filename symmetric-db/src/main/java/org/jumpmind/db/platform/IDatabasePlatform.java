@@ -67,6 +67,8 @@ public interface IDatabasePlatform {
 
     public ISqlTemplate getSqlTemplate();
 
+    public ISqlTemplate getSqlTemplateDirty();
+
     /**
      * The amount of time table metadata will be cached when using {@link IDatabasePlatform#getT
      * @param clearCacheModelTimeoutInMs
@@ -114,6 +116,10 @@ public interface IDatabasePlatform {
 
     public DmlStatement createDmlStatement(DmlType dmlType, String catalogName, String schemaName,
             String tableName, Column[] keys, Column[] columns, boolean[] nullKeyValues, String textColumnExpression);
+    
+    public DmlStatement createDmlStatement(DmlType dmlType, String catalogName, String schemaName,
+            String tableName, Column[] keys, Column[] columns, boolean[] nullKeyValues, String textColumnExpression, 
+            boolean namedParameters);    
 
     public Object[] getObjectValues(BinaryEncoding encoding, String[] values,
             Column[] orderedMetaData);

@@ -53,12 +53,14 @@ import org.jumpmind.symmetric.common.ParameterConstants;
 import org.jumpmind.symmetric.common.SystemConstants;
 import org.jumpmind.symmetric.db.ISymmetricDialect;
 import org.jumpmind.symmetric.db.JdbcSymmetricDialectFactory;
+import org.jumpmind.symmetric.io.stage.BatchStagingManager;
 import org.jumpmind.symmetric.io.stage.IStagingManager;
-import org.jumpmind.symmetric.io.stage.StagingManager;
 import org.jumpmind.symmetric.job.IJobManager;
 import org.jumpmind.symmetric.job.JobManager;
 import org.jumpmind.symmetric.service.IExtensionService;
+import org.jumpmind.symmetric.service.IMonitorService;
 import org.jumpmind.symmetric.service.impl.ClientExtensionService;
+import org.jumpmind.symmetric.service.impl.MonitorService;
 import org.jumpmind.symmetric.util.LogSummaryAppenderUtils;
 import org.jumpmind.symmetric.util.SnapshotUtil;
 import org.jumpmind.symmetric.util.TypedPropertiesFactory;
@@ -87,6 +89,8 @@ public class ClientSymmetricEngine extends AbstractSymmetricEngine {
     protected DataSource dataSource;
 
     protected ApplicationContext springContext;
+    
+    protected IMonitorService monitorService;
 
     /**
      * @param dataSource
@@ -171,6 +175,8 @@ public class ClientSymmetricEngine extends AbstractSymmetricEngine {
 
             super.init();
 
+            this.monitorService = new MonitorService(parameterService, symmetricDialect, nodeService, extensionService, 
+                    clusterService, contextService);
             this.dataSource = platform.getDataSource();
             
             PropertyPlaceholderConfigurer configurer = new PropertyPlaceholderConfigurer();
@@ -259,7 +265,7 @@ public class ClientSymmetricEngine extends AbstractSymmetricEngine {
 
     @Override
     protected ISymmetricDialect createSymmetricDialect() {
-        return new JdbcSymmetricDialectFactory(parameterService, contextService, platform).create();
+        return new JdbcSymmetricDialectFactory(parameterService, platform).create();
     }
 
     @Override
@@ -271,6 +277,7 @@ public class ClientSymmetricEngine extends AbstractSymmetricEngine {
 
     public static IDatabasePlatform createDatabasePlatform(ApplicationContext springContext, TypedProperties properties,
             DataSource dataSource, boolean waitOnAvailableDatabase) {
+        log.info("Initializing connection to database");
         if (dataSource == null) {
             String jndiName = properties.getProperty(ParameterConstants.DB_JNDI_NAME);
             if (StringUtils.isNotBlank(jndiName)) {
@@ -342,7 +349,7 @@ public class ClientSymmetricEngine extends AbstractSymmetricEngine {
     @Override
     protected IStagingManager createStagingManager() {
         String directory = parameterService.getTempDirectory();
-        return new StagingManager(directory);
+        return new BatchStagingManager(this, directory);
     }
 
     protected static void waitForAvailableDatabase(DataSource dataSource) {
@@ -356,8 +363,8 @@ public class ClientSymmetricEngine extends AbstractSymmetricEngine {
                 }
             } catch (Exception ex) {
                 log.error(
-                        "Could not get a connection to the database: {}.  Waiting for 10 seconds before trying to connect to the database again.",
-                        ex.getMessage());
+                        "Could not get a connection to the database: " + ex.getMessage() + 
+                        ".  Waiting for 10 seconds before trying to connect to the database again.", ex);
                 AppUtils.sleep(10000);
             } finally {
                 JdbcSqlTemplate.close(c);
@@ -421,6 +428,10 @@ public class ClientSymmetricEngine extends AbstractSymmetricEngine {
 
     public File snapshot() {
         return SnapshotUtil.createSnapshot(this);
+    }
+
+    public IMonitorService getMonitorService() {
+        return monitorService;
     }
 
 }

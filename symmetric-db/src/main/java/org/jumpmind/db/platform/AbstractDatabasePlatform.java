@@ -112,18 +112,33 @@ public abstract class AbstractDatabasePlatform implements IDatabasePlatform {
     }
 
     abstract public ISqlTemplate getSqlTemplate();
+    
+    abstract public ISqlTemplate getSqlTemplateDirty();
 
     public DmlStatement createDmlStatement(DmlType dmlType, Table table, String textColumnExpression) {
+        
         return createDmlStatement(dmlType, table.getCatalog(), table.getSchema(), table.getName(),
                 table.getPrimaryKeyColumns(), table.getColumns(), null, textColumnExpression);
     }
 
     public DmlStatement createDmlStatement(DmlType dmlType, String catalogName, String schemaName,
             String tableName, Column[] keys, Column[] columns, boolean[] nullKeyValues, String textColumnExpression) {
+        
         return DmlStatementFactory.createDmlStatement(getName(), dmlType, catalogName, schemaName,
                 tableName, keys, columns, nullKeyValues, getDdlBuilder(), textColumnExpression);
     }
 
+    public DmlStatement createDmlStatement(DmlType dmlType, String catalogName, String schemaName,
+            String tableName, Column[] keys, Column[] columns, boolean[] nullKeyValues, String textColumnExpression,
+            boolean namedParameters) {
+
+        return DmlStatementFactory.createDmlStatement(getName(), dmlType, catalogName, schemaName,
+                tableName, keys, columns, nullKeyValues, getDdlBuilder(), textColumnExpression,
+                namedParameters);
+
+    }
+    
+    
     public IDdlReader getDdlReader() {
         return ddlReader;
     }
@@ -356,10 +371,8 @@ public abstract class AbstractDatabasePlatform implements IDatabasePlatform {
                     }
                 } catch (Exception ex) {
                     String valueTrimmed = FormatUtils.abbreviateForLogging(value);
-                    log.error("Could not convert a value of {} for column {} of type {}",
-                            new Object[] { valueTrimmed, column.getName(), column.getMappedType() });
-                    log.error("", ex);
-                    throw new RuntimeException(ex);
+                    throw new RuntimeException("Could not convert a value of " + valueTrimmed + " for column " + 
+                            column.getName() + " of type " + column.getMappedType(), ex);
                 }
             }
 
@@ -393,7 +406,9 @@ public abstract class AbstractDatabasePlatform implements IDatabasePlatform {
                 objectValue = parseBigInteger(value);
             } else if (type == Types.INTEGER || type == Types.SMALLINT || type == Types.BIT || type == Types.TINYINT) {
                 objectValue = parseInteger(value);
-            } else if (type == Types.NUMERIC || type == Types.DECIMAL || type == Types.FLOAT
+            } else if (type == Types.FLOAT) {
+                objectValue = parseFloat(value);
+            } else if (type == Types.NUMERIC || type == Types.DECIMAL
                     || type == Types.DOUBLE || type == Types.REAL) {
                 objectValue = parseBigDecimal(value);
             } else if (type == Types.BOOLEAN) {
@@ -428,6 +443,10 @@ public abstract class AbstractDatabasePlatform implements IDatabasePlatform {
 
         return objectValue;
 
+    }
+    
+    protected Object parseFloat(String value) {
+        return parseBigDecimal(value);
     }
     
     protected Object parseBigDecimal(String value) {
@@ -641,11 +660,11 @@ public abstract class AbstractDatabasePlatform implements IDatabasePlatform {
     }
 
     public boolean isClob(int type) {
-        return type == Types.CLOB || type == Types.LONGVARCHAR || type == ColumnTypes.LONGNVARCHAR;
+        return type == Types.CLOB || type == Types.NCLOB || type == Types.LONGVARCHAR || type == ColumnTypes.LONGNVARCHAR;
     }
 
     public boolean isBlob(int type) {
-        return type == Types.BLOB || type == Types.LONGVARBINARY || type == -10;
+        return type == Types.BLOB || type == Types.BINARY || type == Types.VARBINARY || type == Types.LONGVARBINARY || type == -10;
     }
 
     public List<Column> getLobColumns(Table table) {
@@ -860,7 +879,7 @@ public abstract class AbstractDatabasePlatform implements IDatabasePlatform {
             return Timestamp.valueOf(value);
         } catch (IllegalArgumentException ex) {
             try {
-                return FormatUtils.parseDate(value, FormatUtils.TIMESTAMP_PATTERNS);
+                return new Timestamp(FormatUtils.parseDate(value, FormatUtils.TIMESTAMP_PATTERNS).getTime());
             } catch (Exception e) {
                 int split = value.lastIndexOf(" ");
                 String datetime = value.substring(0, split).trim();
@@ -869,9 +888,9 @@ public abstract class AbstractDatabasePlatform implements IDatabasePlatform {
                 try {
                     return Timestamp.valueOf(datetime); // Try it again without the timezone component.
                 } catch (IllegalArgumentException ex2) {
-                    return FormatUtils.parseDate(datetime,
+                    return new Timestamp(FormatUtils.parseDate(datetime,
                             FormatUtils.TIMESTAMP_PATTERNS,
-                            getTimeZone(timezone));
+                            getTimeZone(timezone)).getTime());
                 }
             }
         }                

@@ -52,6 +52,8 @@ import org.jumpmind.symmetric.ISymmetricEngine;
 import org.jumpmind.symmetric.common.Constants;
 import org.jumpmind.symmetric.common.ParameterConstants;
 import org.jumpmind.symmetric.io.data.writer.StructureDataWriter.PayloadType;
+import org.jumpmind.symmetric.job.IJob;
+import org.jumpmind.symmetric.job.IJobManager;
 import org.jumpmind.symmetric.model.BatchAck;
 import org.jumpmind.symmetric.model.BatchAckResult;
 import org.jumpmind.symmetric.model.IncomingBatch;
@@ -324,8 +326,8 @@ public class RestService {
     @RequestMapping(value = "engine/querynode", method = {RequestMethod.GET, RequestMethod.POST})
     @ResponseStatus(HttpStatus.OK)
     @ResponseBody
-    public final QueryResults getQueryNode(@RequestParam(value = "query") String sql) {
-        return queryNodeImpl(getSymmetricEngine(), sql);
+    public final QueryResults getQueryNode(@RequestParam(value = "query") String sql, @RequestParam(value = "isquery", defaultValue = "true") boolean isQuery) {
+        return queryNodeImpl(getSymmetricEngine(), sql, isQuery);
     }
 
     /**
@@ -336,8 +338,33 @@ public class RestService {
     @ResponseStatus(HttpStatus.OK)
     @ResponseBody
     public final QueryResults getQueryNode(@PathVariable("engine") String engineName,
-            @RequestParam(value = "query") String sql) {
-        return queryNodeImpl(getSymmetricEngine(engineName), sql);
+            @RequestParam(value = "query") String sql, @RequestParam(value = "isquery", defaultValue = "true") boolean isQuery) {
+        return queryNodeImpl(getSymmetricEngine(engineName), sql, isQuery);
+    }
+
+    /**
+     * Execute the named job.  This can be used to control when jobs are run via and external application.  You would typically 
+     * disable the job first so it no longer runs automatically.  
+     */
+    @ApiOperation(value = "Execute the named job.  This can be used to control when jobs are run via and external application.  "
+            + "You would typically disable the job first so it no longer runs automatically.  Jobs you might want to control include: "
+            + "job.route, job.push, job.pull, job.offline.push, job.offline.pull")
+    @RequestMapping(value = "engine/{engine}/invokejob", method = {RequestMethod.GET, RequestMethod.POST})
+    @ResponseStatus(HttpStatus.OK)
+    @ResponseBody
+    public boolean invokeJob(@PathVariable("engine") String engineName, @RequestParam("jobname") String jobName) {
+        IJobManager jobManager = getSymmetricEngine(engineName).getJobManager();
+        IJob job = jobManager.getJob(jobName);
+        if (job == null) {
+            log.warn("Could not find a job with the name '{}' in the '{}' engine", jobName, engineName);
+            return false;
+        } else if (!job.isRunning()) {
+            log.info("Invoking '{}' via the REST API", jobName);
+            return job.invoke(true);
+        } else {
+            log.info("Could not invoke the '{}' job via the REST API because it is already running", jobName);
+            return false;
+        }
     }
 
     /**
@@ -1516,7 +1543,7 @@ public class RestService {
         Node xmlNode = new Node();
         if (isRegistered(engine)) {
             INodeService nodeService = engine.getNodeService();
-            org.jumpmind.symmetric.model.Node modelNode = nodeService.findIdentity(false);
+            org.jumpmind.symmetric.model.Node modelNode = nodeService.findIdentity();
             List<NodeHost> nodeHosts = nodeService.findNodeHosts(modelNode.getNodeId());
             NodeSecurity nodeSecurity = nodeService.findNodeSecurity(modelNode.getNodeId());
             xmlNode.setNodeId(modelNode.getNodeId());
@@ -1559,7 +1586,7 @@ public class RestService {
     private boolean isRegistered(ISymmetricEngine engine) {
         boolean registered = true;
         INodeService nodeService = engine.getNodeService();
-        org.jumpmind.symmetric.model.Node modelNode = nodeService.findIdentity(false);
+        org.jumpmind.symmetric.model.Node modelNode = nodeService.findIdentity();
         if (modelNode == null) {
             registered = false;
         } else {
@@ -1576,7 +1603,7 @@ public class RestService {
         NodeStatus status = new NodeStatus();
         if (isRegistered(engine)) {
             INodeService nodeService = engine.getNodeService();
-            org.jumpmind.symmetric.model.Node modelNode = nodeService.findIdentity(false);
+            org.jumpmind.symmetric.model.Node modelNode = nodeService.findIdentity();
             NodeSecurity nodeSecurity = nodeService.findNodeSecurity(modelNode.getNodeId());
             List<NodeHost> nodeHost = nodeService.findNodeHosts(modelNode.getNodeId());
             status.setStarted(engine.isStarted());
@@ -1640,7 +1667,7 @@ public class RestService {
         return channelStatus;
     }
 
-    private QueryResults queryNodeImpl(ISymmetricEngine engine, String sql) {
+    private QueryResults queryNodeImpl(ISymmetricEngine engine, String sql, boolean isQuery) {
 
         QueryResults results = new QueryResults();
         org.jumpmind.symmetric.web.rest.model.Row xmlRow = null;
@@ -1648,6 +1675,12 @@ public class RestService {
 
         ISqlTemplate sqlTemplate = engine.getSqlTemplate();
         try {
+            if(!isQuery){
+                int updates = sqlTemplate.update(sql);
+                results.setNbrResults(updates);
+                return results;
+            }
+        	
             List<Row> rows = sqlTemplate.query(sql);
             int nbrRows = 0;
             for (Row row : rows) {

@@ -25,6 +25,8 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.jumpmind.symmetric.model.ProcessInfoKey.ProcessType;
 
@@ -33,7 +35,7 @@ public class ProcessInfo implements Serializable, Comparable<ProcessInfo>, Clone
     private static final long serialVersionUID = 1L;
 
     public static enum Status {
-        NEW, QUERYING, EXTRACTING, LOADING, TRANSFERRING, ACKING, PROCESSING, OK, ERROR;
+        NEW, QUERYING, EXTRACTING, LOADING, TRANSFERRING, ACKING, PROCESSING, OK, ERROR, CREATING;
 
         public String toString() {
             switch (this) {
@@ -55,6 +57,8 @@ public class ProcessInfo implements Serializable, Comparable<ProcessInfo>, Clone
                     return "Ok";
                 case ERROR:
                     return "Error";
+                case CREATING:
+                    return "Creating";
 
                 default:
                     return name();
@@ -74,6 +78,8 @@ public class ProcessInfo implements Serializable, Comparable<ProcessInfo>, Clone
 
     private long currentBatchId;
 
+    private long currentBatchCount;
+    
     private String currentChannelId;
 
     private boolean threadPerChannel;
@@ -90,6 +96,8 @@ public class ProcessInfo implements Serializable, Comparable<ProcessInfo>, Clone
 
     private Date lastStatusChangeTime = new Date();
 
+    private Map<Status, ProcessInfo> statusHistory;
+    
     private Date endTime;
 
     public ProcessInfo() {
@@ -126,7 +134,14 @@ public class ProcessInfo implements Serializable, Comparable<ProcessInfo>, Clone
     }
 
     public void setStatus(Status status) {
-        this.status = status;
+        if (statusHistory == null) {
+        	statusHistory = new HashMap<Status, ProcessInfo>();
+        }
+    	statusHistory.put(this.status, this.copy());
+        statusHistory.put(status, this);
+        
+    	this.status = status;
+        
         this.lastStatusChangeTime = new Date();
         if (status == Status.OK || status == Status.ERROR) {
             this.endTime = new Date();
@@ -156,8 +171,20 @@ public class ProcessInfo implements Serializable, Comparable<ProcessInfo>, Clone
     public void incrementBatchCount() {
         this.batchCount++;
     }
+    
+    public void incrementCurrentBatchCount() {
+        this.currentBatchCount++;
+    }
+    
+    public long getCurrentBatchCount() {
+		return currentBatchCount;
+	}
 
-    public long getCurrentBatchId() {
+	public void setCurrentBatchCount(long currentBatchCount) {
+		this.currentBatchCount = currentBatchCount;
+	}
+
+	public long getCurrentBatchId() {
         return currentBatchId;
     }
 
@@ -175,10 +202,14 @@ public class ProcessInfo implements Serializable, Comparable<ProcessInfo>, Clone
         return currentLoadId;
     }
 
-    public String getCurrentChannelId() {
+    public String getCurrentChannelThread() {
     	if (getKey().getChannelId() != null && getKey().getChannelId().length() > 0) {
     		return getKey().getChannelId();
     	}
+        return "";
+    }
+    
+    public String getCurrentChannelId() {
         return currentChannelId;
     }
 
@@ -246,6 +277,14 @@ public class ProcessInfo implements Serializable, Comparable<ProcessInfo>, Clone
         this.currentBatchStartTime = currentBatchStartTime;
     }
 
+    public Map<Status, ProcessInfo> getStatusHistory() {
+    	return this.statusHistory;
+    }
+    
+    public ProcessInfo getStatusHistory(Status status) {
+    	return this.statusHistory == null ? null : this.statusHistory.get(status);
+    }
+    
     @Override
     public String toString() {
         return String.format("%s,status=%s,startTime=%s", key.toString(), status.toString(),

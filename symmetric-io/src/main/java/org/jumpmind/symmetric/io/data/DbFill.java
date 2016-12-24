@@ -76,6 +76,8 @@ public class DbFill {
 
     private boolean cascadingSelect = false;
 
+    private boolean truncate = false;
+    
     private String ignore[] = null;
     
     private String prefixed[] = null;
@@ -86,6 +88,8 @@ public class DbFill {
     
     private int maxRowsCommit = 1;
     
+    private int commitDelay = 0;
+
     private int percentRollback = 0;
 
     private Random rand = null;
@@ -343,8 +347,10 @@ public class DbFill {
             int numRowsToGenerate = inputLength;
             int numRowsToCommit = maxRowsCommit;
             if (useRandomCount) {
-                numRowsToGenerate = getRand().nextInt(inputLength - 1) + 1;
-                numRowsToCommit = getRand().nextInt(maxRowsCommit - 1) + 1;
+                numRowsToGenerate = getRand().nextInt(inputLength);
+                numRowsToGenerate = numRowsToGenerate > 0 ? numRowsToGenerate : 1;
+                numRowsToCommit = getRand().nextInt(maxRowsCommit);
+                numRowsToCommit = numRowsToCommit > 0 ? numRowsToCommit : 1;
             }
             for (int i = 0; i < numRowsToGenerate; i++) {
                 ArrayList<Table> tablesToProcess = new ArrayList<Table>(tables);
@@ -360,7 +366,9 @@ public class DbFill {
                     List<Table> groupTables = new ArrayList<Table>();
                     if (cascading && dmlType == INSERT) {
                         groupTables.addAll(foreignTables.get(tableToProcess));
-                        System.out.println("Cascade insert " + tableToProcess.getName() + ": " + toStringTables(groupTables));
+                        if (groupTables.size() > 0) {
+                            log.info("Cascade insert " + tableToProcess.getName() + ": " + toStringTables(groupTables));
+                        }
                     } else if (cascadingSelect && dmlType == INSERT) {
                         List<Table> foreignList = foreignTables.get(tableToProcess);
                         for (Table foreignTable : foreignList) {
@@ -372,6 +380,12 @@ public class DbFill {
                         }
                     }                    
                     groupTables.add(tableToProcess);
+                    
+                    if (truncate) {
+                    	for (Table table : groupTables) {
+                    		truncateTable(tran, table);
+                    	}
+                    }
                     
                     for (Table table : groupTables) {
                         switch (dmlType) {
@@ -396,6 +410,9 @@ public class DbFill {
                         }
 
                         if (++rowsInTransaction >= numRowsToCommit) {
+                            if (commitDelay > 0) {
+                                AppUtils.sleep(commitDelay);
+                            }
                             if (percentRollback > 0 && getRand().nextInt(100) <= percentRollback) {
                                 if (verbose) {
                                     log.info("Rollback " + rowsInTransaction + " rows");
@@ -416,6 +433,9 @@ public class DbFill {
                 clearDependentColumnValues(tables);
             }
             if (rowsInTransaction > 0) {
+                if (commitDelay > 0) {
+                    AppUtils.sleep(commitDelay);
+                }
                 if (verbose) {
                     log.info("Commit " + rowsInTransaction + " rows");
                 }
@@ -424,10 +444,16 @@ public class DbFill {
         }
     }
 
+    private void truncateTable(ISqlTransaction tran, Table table) {
+    	if (verbose) {
+    		log.info("Truncating table " + table.getFullyQualifiedTableName());
+    	}
+    	tran.execute("truncate table " + table.getFullyQualifiedTableName());
+    }
     private String toStringTables(List<Table> tables) {
-        StringBuilder sb = null;
+        StringBuilder sb = new StringBuilder("[");
         for (Table table : tables) {
-            sb = (sb == null) ?  new StringBuilder("[") : sb.append(", ");
+            sb.append(", ");
             sb.append(table.getName());
         }
         sb.append("]");
@@ -802,7 +828,7 @@ public class DbFill {
     }
 
     private BigDecimal randomBigDecimal(int size, int digits) {
-        if (size == 0 && digits == 0) {
+        if (size <= 0 && (digits <= 0)) {
             // set the values to something reasonable
             size = 10;
             digits = 6;
@@ -1008,7 +1034,15 @@ public class DbFill {
         this.cascadingSelect = cascadingSelect;
     }
 
-    public String[] getIgnore() {
+    public boolean isTruncate() {
+		return truncate;
+	}
+
+	public void setTruncate(boolean truncate) {
+		this.truncate = truncate;
+	}
+
+	public String[] getIgnore() {
         return ignore;
     }
 
@@ -1074,7 +1108,11 @@ public class DbFill {
     public void setMaxRowsCommit(int maxRowsCommit) {
         this.maxRowsCommit = maxRowsCommit;
     }
-    
+
+    public void setCommitDelay(int commitDelay) {
+        this.commitDelay = commitDelay;
+    }
+
     public void setPercentRollback(int percentRollback) {
         this.percentRollback = percentRollback;
     }

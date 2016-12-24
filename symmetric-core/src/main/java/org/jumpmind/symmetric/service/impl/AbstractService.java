@@ -64,6 +64,8 @@ abstract public class AbstractService implements IService {
     protected ISymmetricDialect symmetricDialect;
 
     protected ISqlTemplate sqlTemplate;
+    
+    protected ISqlTemplate sqlTemplateDirty;
 
     protected IDatabasePlatform platform;
 
@@ -79,6 +81,7 @@ abstract public class AbstractService implements IService {
         this.tablePrefix = parameterService.getTablePrefix();
         this.platform = symmetricDialect.getPlatform();
         this.sqlTemplate = symmetricDialect.getPlatform().getSqlTemplate();
+        this.sqlTemplateDirty = symmetricDialect.getPlatform().getSqlTemplateDirty();
     }
     
     protected Date maxDate(Date... dates) {
@@ -202,7 +205,7 @@ abstract public class AbstractService implements IService {
     }
     
     protected String buildBatchWhere(List<String> nodeIds, List<String> channels,
-            List<?> statuses) {
+            List<?> statuses, List<String> loads) {
         boolean containsErrorStatus = statuses.contains(OutgoingBatch.Status.ER)
                 || statuses.contains(IncomingBatch.Status.ER);
         boolean containsIgnoreStatus = statuses.contains(OutgoingBatch.Status.IG)
@@ -210,19 +213,26 @@ abstract public class AbstractService implements IService {
 
         StringBuilder where = new StringBuilder();
         boolean needsAnd = false;
-        if (nodeIds.size() > 0) {
+        if (nodeIds != null && nodeIds.size() > 0) {
             where.append("node_id in (:NODES)");
             needsAnd = true;
         }
         
-        if (channels.size() > 0) {
+        if (channels != null && channels.size() > 0) {
             if (needsAnd) {
                 where.append(" and ");
             }
             where.append("channel_id in (:CHANNELS)");
             needsAnd = true;
         }
-        if (statuses.size() > 0) {
+        if (loads != null && loads.size() > 0) {
+            if (needsAnd) {
+                where.append(" and ");
+            }
+            where.append("load_id in (:LOADS)");
+            needsAnd = true;
+        }
+        if (statuses != null && statuses.size() > 0) {
             if (needsAnd) {
                 where.append(" and ");
             }
