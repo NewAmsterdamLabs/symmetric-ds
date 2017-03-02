@@ -18,29 +18,31 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.jumpmind.symmetric.statistic;
+#ifndef SYM_FILETRIGGERROUTER_H_
+#define SYM_FILETRIGGERROUTER_H_
 
-import java.io.Writer;
+#include <stdlib.h>
+#include "util/Date.h"
+#include "model/Router.h"
+#include "model/FileTrigger.h"
 
-public class DataExtractorStatisticsWriter extends AbstractStatisticsWriter {
 
-    public DataExtractorStatisticsWriter(IStatisticManager statisticManager, Writer out,
-            int notifyAfterByteCount, int notifyAfterLineCount) {
-        super(statisticManager, out, notifyAfterByteCount, notifyAfterLineCount);
-    }
+typedef struct SymFileTriggerRouter {
+    SymFileTrigger *fileTrigger;
+    SymRouter *router;
+    unsigned short enabled;
+    unsigned short initialLoadEnabled;
+    char *targetBaseDir;
+    char *triggerId;
+    char *routerId;
+    char *conflictStrategy;
+    SymDate *createTime;
+    char *lastUpdateBy;
+    SymDate *lastUpdateTime;
 
-    @Override
-    protected void processNumberOfBytesSoFar(long count) {
-        if (channelId != null) {
-            statisticManager.incrementDataBytesExtracted(channelId, count);
-        }
-    }
+    void (*destroy)(struct SymFileTriggerRouter *this);
+} SymFileTriggerRouter;
 
-    @Override
-    protected void processNumberOfLinesSoFar(long count) {
-        if (channelId != null) {
-            statisticManager.incrementDataExtracted(channelId, count);
-        }
-    }
+SymFileTriggerRouter * SymFileTriggerRouter_new(SymFileTriggerRouter *this);
 
-}
+#endif /* SYM_FILETRIGGERROUTER_H_ */

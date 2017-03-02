@@ -85,6 +85,7 @@ import org.jumpmind.symmetric.io.data.DataProcessor;
 import org.jumpmind.symmetric.io.data.IDataReader;
 import org.jumpmind.symmetric.io.data.IDataWriter;
 import org.jumpmind.symmetric.io.data.ProtocolException;
+import org.jumpmind.symmetric.io.data.reader.DataReaderStatistics;
 import org.jumpmind.symmetric.io.data.reader.ExtractDataReader;
 import org.jumpmind.symmetric.io.data.reader.IExtractDataReaderSource;
 import org.jumpmind.symmetric.io.data.reader.ProtocolDataReader;
@@ -470,7 +471,7 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
         return extract(processInfo, targetNode, null, transport);
     }
     
-    public List<OutgoingBatch> extract(ProcessInfo processInfo, Node targetNode, String channelId,
+    public List<OutgoingBatch> extract(ProcessInfo processInfo, Node targetNode, String queue,
             IOutgoingTransport transport) {
 
         /*
@@ -483,8 +484,8 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
 
         
         OutgoingBatches batches = null;
-        if (channelId != null) {
-        	batches = outgoingBatchService.getOutgoingBatches(targetNode.getNodeId(), channelId, false);
+        if (queue != null) {
+        	batches = outgoingBatchService.getOutgoingBatches(targetNode.getNodeId(), queue, false);
         }
         else {
         	batches = outgoingBatchService.getOutgoingBatches(targetNode.getNodeId(), false);
@@ -492,7 +493,7 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
 
         if (batches.containsBatches()) {
 
-            ChannelMap channelMap = transport.getSuspendIgnoreChannelLists(configurationService,
+            ChannelMap channelMap = transport.getSuspendIgnoreChannelLists(configurationService, queue,
                     targetNode);
 
             List<OutgoingBatch> activeBatches = filterBatchesForExtraction(batches, channelMap);
@@ -809,8 +810,7 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
 
             if (currentBatch.getStatus() == Status.IG) {
                 cleanupIgnoredBatch(sourceNode, targetNode, currentBatch, writer);
-            } else if (!isPreviouslyExtracted(currentBatch)) {                
-                int maxPermits = parameterService.getInt(ParameterConstants.CONCURRENT_WORKERS);
+            } else if (!isPreviouslyExtracted(currentBatch)) {
                 String semaphoreKey = useStagingDataWriter ? Long.toString(currentBatch
                         .getBatchId()) : currentBatch.getNodeBatchId();
                 Semaphore lock = null;
@@ -818,7 +818,7 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                     synchronized (locks) {
                         lock = locks.get(semaphoreKey);
                         if (lock == null) {
-                            lock = new Semaphore(maxPermits);
+                            lock = new Semaphore(1);
                             locks.put(semaphoreKey, lock);
                         }
                         try {
@@ -828,7 +828,6 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                         }
                     }
 
-                    synchronized (lock) {
                         if (!isPreviouslyExtracted(currentBatch)) {
                             currentBatch.setExtractCount(currentBatch.getExtractCount() + 1);
                             if (updateBatchStatistics) {
@@ -852,8 +851,13 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                             transformTimeInMs = stats.get(DataWriterStatisticConstants.TRANSFORMMILLIS);
                             extractTimeInMs = extractTimeInMs - transformTimeInMs;
                             byteCount = stats.get(DataWriterStatisticConstants.BYTECOUNT);
+                            
+                            statisticManager.incrementDataBytesExtracted(currentBatch.getChannelId(),
+                                    byteCount);
+                            statisticManager.incrementDataExtracted(currentBatch.getChannelId(),
+                                    stats.get(DataWriterStatisticConstants.STATEMENTCOUNT));
+                            
                         }
-                    }
                 } catch (RuntimeException ex) {
                     IStagedResource resource = getStagedResource(currentBatch);
                     if (resource != null) {
@@ -864,9 +868,7 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                 } finally {
                     lock.release();
                     synchronized (locks) {
-                        if (lock.availablePermits() == maxPermits) {
-                            locks.remove(semaphoreKey);
-                        }
+                        locks.remove(semaphoreKey);
                     }
                 }
             }
@@ -894,11 +896,8 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
 
                 if (byteCount > 0) {
                     currentBatch.setByteCount(byteCount);
-                    statisticManager.incrementDataBytesExtracted(currentBatch.getChannelId(),
-                            byteCount);
-                    statisticManager.incrementDataExtracted(currentBatch.getChannelId(),
-                            currentBatch.getExtractCount());
                 }
+
             }
 
         }
@@ -984,8 +983,10 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
     protected boolean isRetry(OutgoingBatch currentBatch, Node remoteNode) {
         boolean offline = parameterService.is(ParameterConstants.NODE_OFFLINE, false);
         IStagedResource previouslyExtracted = getStagedResource(currentBatch);
+        boolean cclient = StringUtils.equals(remoteNode.getDeploymentType(), Constants.DEPLOYMENT_TYPE_CCLIENT);
         return !offline && previouslyExtracted != null && previouslyExtracted.exists() && previouslyExtracted.getState() != State.CREATE
-                && currentBatch.getStatus() != OutgoingBatch.Status.RS && currentBatch.getSentCount() > 0 && remoteNode.isVersionGreaterThanOrEqualTo(3, 8, 0);
+                && currentBatch.getStatus() != OutgoingBatch.Status.RS && currentBatch.getSentCount() > 0 && remoteNode.isVersionGreaterThanOrEqualTo(3, 8, 0)
+                && !cclient;
     }
 
     protected OutgoingBatch sendOutgoingBatch(ProcessInfo processInfo, Node targetNode,
@@ -1005,13 +1006,13 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                                 long memoryThresholdInBytes = extractedBatch.isFileResource() ? 0 :
                                     targetEngine.getParameterService().getLong(ParameterConstants.STREAM_TO_FILE_THRESHOLD);
                                 Node sourceNode = nodeService.findIdentity();
-                                IStagedResource targetResource = targetEngine.getStagingManager().create(memoryThresholdInBytes, 
+                                IStagedResource targetResource = targetEngine.getStagingManager().create( 
                                         Constants.STAGING_CATEGORY_INCOMING, Batch.getStagedLocation(false, sourceNode.getNodeId()), 
                                         currentBatch.getBatchId());
                                 if (extractedBatch.isFileResource()) {
                                     SymmetricUtils.copyFile(extractedBatch.getFile(), targetResource.getFile());
                                 } else {
-                                    IOUtils.copy(extractedBatch.getReader(), targetResource.getWriter());
+                                    IOUtils.copy(extractedBatch.getReader(), targetResource.getWriter(memoryThresholdInBytes));
                                     extractedBatch.close();
                                     targetResource.close();
                                 }
@@ -1036,11 +1037,11 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                     ctx.put(Constants.DATA_CONTEXT_SOURCE_NODE, nodeService.findIdentity());
                     new DataProcessor(dataReader, new ProcessInfoDataWriter(dataWriter, processInfo), "send from stage")
                             .process(ctx);
-                    if (dataWriter.getStatistics().size() > 0) {
-                        Statistics stats = dataWriter.getStatistics().values().iterator().next();
+                    if (dataReader.getStatistics().size() > 0) {
+                        Statistics stats = dataReader.getStatistics().values().iterator().next();
                         statisticManager.incrementDataSent(currentBatch.getChannelId(),
-                                stats.get(DataWriterStatisticConstants.STATEMENTCOUNT));
-                        long byteCount = stats.get(DataWriterStatisticConstants.BYTECOUNT);
+                                stats.get(DataReaderStatistics.READ_RECORD_COUNT));
+                        long byteCount = stats.get(DataReaderStatistics.READ_BYTE_COUNT);
                         statisticManager.incrementDataBytesSent(currentBatch.getChannelId(), byteCount);
                     } else {
                         log.warn("Could not find recorded statistics for batch {}",
@@ -1129,8 +1130,14 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                             numBytesRead = 0;
                             bts = System.currentTimeMillis();
                         }
+                    } else {
+                        totalBytesRead += new String(buffer, 0, numCharsRead).getBytes().length;
                     }
                 }
+                
+                statisticManager.incrementDataSent(batch.getChannelId(), batch.getDataEventCount());
+                statisticManager.incrementDataBytesSent(batch.getChannelId(), totalBytesRead);
+
                 if (log.isDebugEnabled() && totalThrottleTime > 0) {
                     log.debug("Batch '{}' for node '{}' took {}ms for {} bytes and was throttled for {}ms because limit is set to {} KB/s",
                             batch.getBatchId(), batch.getNodeId(), (System.currentTimeMillis() - startTime), totalBytesRead,
@@ -1611,6 +1618,7 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                     reloadSource.close();
                     reloadSource = null;
                 }
+                lastTriggerHistory = null;
             }
 
             if (data == null) {
