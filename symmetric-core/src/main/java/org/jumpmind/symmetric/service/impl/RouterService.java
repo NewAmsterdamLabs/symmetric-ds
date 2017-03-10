@@ -266,7 +266,7 @@ public class RouterService extends AbstractService implements IRouterService {
                                     isInitialLoadQueued = true;
                                     ts = System.currentTimeMillis() - ts;
                                     if (ts > Constants.LONG_OPERATION_THRESHOLD) {
-                                        log.warn("Inserted reload events for node {} in {} ms",
+                                        log.warn("Inserted reload events for node {} took longer than expected.  It took {} ms",
                                                 security.getNodeId(), ts);
                                     } else {
                                         log.info("Inserted reload events for node {} in {} ms",
@@ -312,7 +312,7 @@ public class RouterService extends AbstractService implements IRouterService {
     public void processTableRequestLoads(Node source, ProcessInfo processInfo) {
         List<TableReloadRequest> loadsToProcess = engine.getDataService().getTableReloadRequestToProcess(source.getNodeId());
         if (loadsToProcess.size() > 0) {
-        	processInfo.setStatus(ProcessInfo.Status.CREATING);
+            processInfo.setStatus(ProcessInfo.Status.CREATING);
             log.info("Found " + loadsToProcess.size() + " table reload requests to process.");
             gapDetector.setFullGapAnalysis(true);
             

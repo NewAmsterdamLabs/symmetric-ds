@@ -106,6 +106,7 @@ import org.jumpmind.symmetric.model.Data;
 import org.jumpmind.symmetric.model.DataMetaData;
 import org.jumpmind.symmetric.model.ExtractRequest;
 import org.jumpmind.symmetric.model.ExtractRequest.ExtractStatus;
+import org.jumpmind.symmetric.model.NodeCommunication.CommunicationType;
 import org.jumpmind.symmetric.model.Node;
 import org.jumpmind.symmetric.model.NodeChannel;
 import org.jumpmind.symmetric.model.NodeCommunication;
@@ -1016,7 +1017,7 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                                     extractedBatch.close();
                                     targetResource.close();
                                 }
-                                targetResource.setState(State.READY);
+                                targetResource.setState(State.DONE);
                                 isRetry = true;
                             } catch (Exception e) {
                                 throw new RuntimeException(e);
@@ -1358,7 +1359,7 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
 
     public void requestExtractRequest(ISqlTransaction transaction, String nodeId, String queue,
             TriggerRouter triggerRouter, long startBatchId, long endBatchId) {
-        long requestId = sequenceService.nextVal(transaction, Constants.SEQUENCE_EXTRACT_REQ);
+        long requestId = sequenceService.nextVal(Constants.SEQUENCE_EXTRACT_REQ);
         transaction.prepareAndExecute(getSql("insertExtractRequestSql"),
                 new Object[] { requestId, nodeId, queue, ExtractStatus.NE.name(), startBatchId,
                         endBatchId, triggerRouter.getTrigger().getTriggerId(),
@@ -1377,6 +1378,11 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
      * in the background.
      */
     public void execute(NodeCommunication nodeCommunication, RemoteNodeStatus status) {
+        if (!isApplicable(nodeCommunication, status)) {
+            log.debug("{} failed isApplicable check and will not run.", this);
+            return;
+        }
+        
         List<ExtractRequest> requests = getExtractRequestsForNode(nodeCommunication);
         long ts = System.currentTimeMillis();
         /*
@@ -1507,6 +1513,10 @@ public class DataExtractorService extends AbstractService implements IDataExtrac
                 throw ex;
             }
         }
+    }
+    
+    protected boolean isApplicable(NodeCommunication nodeCommunication, RemoteNodeStatus status) {
+        return nodeCommunication.getCommunicationType() != CommunicationType.FILE_XTRCT;
     }
 
     protected ProcessType getProcessType() {
