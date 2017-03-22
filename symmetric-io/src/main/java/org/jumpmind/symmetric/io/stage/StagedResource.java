@@ -148,10 +148,6 @@ public class StagedResource implements IStagedResource {
             }
         } 
         
-        if (memoryBuffer != null && state == State.DONE) {
-            this.memoryBuffer.setLength(0);
-            this.memoryBuffer = null;
-        }
         refreshLastUpdateTime();
         this.state = state;
         this.file = buildFile(state);
@@ -239,9 +235,6 @@ public class StagedResource implements IStagedResource {
             stagingManager.inUse.remove(path);
         }
         
-        if (!isFileResource && this.state == State.DONE) {
-            stagingManager.resourcePaths.remove(path);
-        }
     }
     
     public OutputStream getOutputStream() {
