@@ -46,6 +46,8 @@ import org.slf4j.LoggerFactory;
 public class StagedResource implements IStagedResource {
 
     static final Logger log = LoggerFactory.getLogger(StagedResource.class);
+    
+    private int references = 0;
 
     private File directory;
     
@@ -95,8 +97,20 @@ public class StagedResource implements IStagedResource {
         return path;
     }
     
+    @Override
+    public void reference() {
+        references++;
+        log.debug("Increased reference to {} for {} by {}", references, path, Thread.currentThread().getName());
+    }
+    
+    @Override
+    public void dereference() {
+        references--;
+        log.debug("Decreased reference to {} for {} by {}", references, path, Thread.currentThread().getName());
+    }
+    
     public boolean isInUse() {
-        return (readers != null && readers.size() > 0) || writer != null || 
+        return references > 0 || (readers != null && readers.size() > 0) || writer != null || 
                 (inputStreams != null && inputStreams.size() > 0) ||
                 outputStream != null;
     }
@@ -117,6 +131,8 @@ public class StagedResource implements IStagedResource {
         if (file != null && file.exists()) {
             File newFile = buildFile(state);
             if (!newFile.equals(file)) {
+                closeInternal();
+                
                 if (newFile.exists()) {
                     if (writer != null || outputStream != null) {
                         throw new IoException("Could not write '{}' it is currently being written to", newFile.getAbsolutePath());                                
@@ -138,6 +154,7 @@ public class StagedResource implements IStagedResource {
                         }
                     }
                 }
+                
                 if (!file.renameTo(newFile)) {
                     String msg = String
                             .format("Had trouble renaming file.  The current name is %s and the desired state was %s",
@@ -202,8 +219,15 @@ public class StagedResource implements IStagedResource {
             inputStreams = null;
         }
     }    
-
+    
     public void close() {
+        closeInternal();
+        if (isFileResource()) {
+            stagingManager.inUse.remove(path);
+        }
+    }
+    
+    private void closeInternal() {
         Thread thread = Thread.currentThread();
         BufferedReader reader = readers != null ? readers.get(thread) : null;
         if (reader != null) {
@@ -228,13 +252,6 @@ public class StagedResource implements IStagedResource {
             inputStreams.remove(thread);
             closeInputStreamsMap();
         }
-        
-        boolean isFileResource = this.isFileResource();
-        
-        if (isFileResource || this.state == State.DONE) {
-            stagingManager.inUse.remove(path);
-        }
-        
     }
     
     public OutputStream getOutputStream() {
@@ -312,28 +329,27 @@ public class StagedResource implements IStagedResource {
         this.lastUpdateTime = System.currentTimeMillis();
     }
 
-    public boolean delete() {
-        
-        boolean deleted = true;
-        
+    public boolean delete() {        
         close();
+        boolean deleted = false;
         if (file != null && file.exists()) {
             FileUtils.deleteQuietly(file);
-            deleted = !file.exists();            
+            deleted = !file.exists();
         }
 
         if (memoryBuffer != null) {
-            memoryBuffer.setLength(0);
             memoryBuffer = null;
+            deleted = true;
         }
-        
+
         if (deleted) {
             stagingManager.resourcePaths.remove(path);
             stagingManager.inUse.remove(path);
-        }
-        
+            if (log.isDebugEnabled() && path.contains("outgoing")) {
+                log.debug("Deleted staging resource {}", path);
+            }
+        }              
         return deleted;
-        
     }
 
     public File getFile() {

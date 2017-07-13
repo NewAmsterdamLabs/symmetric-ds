@@ -56,6 +56,7 @@ final public class ParameterConstants {
     public final static String START_ROUTE_JOB = "start.route.job";
     public final static String START_HEARTBEAT_JOB = "start.heartbeat.job";
     public final static String START_SYNCTRIGGERS_JOB = "start.synctriggers.job";
+    public final static String START_SYNC_CONFIG_JOB = "start.sync.config.job";
     public final static String START_STATISTIC_FLUSH_JOB = "start.stat.flush.job";
     public final static String START_STAGE_MGMT_JOB = "start.stage.management.job";
     public final static String START_WATCHDOG_JOB = "start.watchdog.job";
@@ -116,6 +117,8 @@ final public class ParameterConstants {
     public final static String AUTO_CONFIGURE_DATABASE = "auto.config.database";
     public final static String AUTO_SYNC_TRIGGERS = "auto.sync.triggers";
     public final static String AUTO_SYNC_TRIGGERS_AT_STARTUP = "auto.sync.triggers.at.startup";
+    public final static String AUTO_SYNC_CONFIG_AT_STARTUP = "auto.sync.config.at.startup";
+    public final static String AUTO_SYNC_CONFIG_AFTER_UPGRADE = "auto.sync.config.after.upgrade";
     public final static String AUTO_SYNC_TRIGGERS_AFTER_CONFIG_CHANGED = "auto.sync.triggers.after.config.change";
     public final static String AUTO_SYNC_TRIGGERS_AFTER_CONFIG_LOADED = "auto.sync.triggers.after.config.loaded";
     public final static String AUTO_REFRESH_AFTER_CONFIG_CHANGED = "auto.refresh.after.config.changes.detected";
@@ -241,6 +244,7 @@ final public class ParameterConstants {
 
     public final static String TRIGGER_UPDATE_CAPTURE_CHANGED_DATA_ONLY = "trigger.update.capture.changed.data.only.enabled";
     public final static String TRIGGER_CREATE_BEFORE_INITIAL_LOAD = "trigger.create.before.initial.load.enabled";
+    public final static String TRIGGER_CAPTURE_DDL_CHANGES = "trigger.capture.ddl.changes";
 
     public final static String DB_METADATA_IGNORE_CASE = "db.metadata.ignore.case";
     public final static String DB_NATIVE_EXTRACTOR = "db.native.extractor";
@@ -377,7 +381,11 @@ final public class ParameterConstants {
     
     public final static String OUTGOING_BATCH_UPDATE_STATUS_MILLIS = "outgoing.batches.update.status.millis";
     
+    public final static String OUTGOING_BATCH_UPDATE_STATUS_DATA_COUNT = "outgoing.batches.update.status.data.count";
+    
     public final static String FIREBIRD_EXTRACT_VARCHAR_ROW_OLD_PK_DATA = "firebird.extract.varchar.row.old.pk.data";
+    
+    public final static String LOG_CONFLICT_RESOLUTION = "log.conflict.resolution";
     
     public static Map<String, ParameterMetaData> getParameterMetaData() {
         return parameterMetaData;

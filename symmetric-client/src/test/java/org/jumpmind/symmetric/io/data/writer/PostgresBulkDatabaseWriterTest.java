@@ -21,7 +21,6 @@
 package org.jumpmind.symmetric.io.data.writer;
 
 import java.util.List;
-
 import org.jumpmind.db.DbTestUtils;
 import org.jumpmind.db.model.Table;
 import org.jumpmind.db.platform.IDatabasePlatform;
@@ -34,6 +33,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.springframework.jdbc.support.nativejdbc.CommonsDbcpNativeJdbcExtractor;
 
+@SuppressWarnings("deprecation")
 public class PostgresBulkDatabaseWriterTest extends AbstractBulkDatabaseWriterTest {
 
     @BeforeClass
@@ -50,7 +50,7 @@ public class PostgresBulkDatabaseWriterTest extends AbstractBulkDatabaseWriterTe
         setErrorExpected(false);
     }
 
-    // TODO: Fix this test for Posgres
+    // TODO: Fix this test for Postgres
     @Test
     public void testInsertWithNonEscaped() {
     }
@@ -59,9 +59,16 @@ public class PostgresBulkDatabaseWriterTest extends AbstractBulkDatabaseWriterTe
         return platform != null && platform instanceof PostgreSqlDatabasePlatform;
     }
 
+    protected AbstractDatabaseWriter create(){
+        return new PostgresBulkDatabaseWriter(platform, new DatabaseWriterSettings(), new CommonsDbcpNativeJdbcExtractor(), 1000);
+    }
+
+    @Override
     protected long writeData(List<CsvData> data) {
         Table table = platform.getTableFromCache(getTestTable(), false);
-        return writeData(new PostgresBulkDatabaseWriter(platform, new CommonsDbcpNativeJdbcExtractor(), 1000), new TableCsvData(table, data));
+        return writeData(new PostgresBulkDatabaseWriter(platform, new DatabaseWriterSettings(), 
+                new CommonsDbcpNativeJdbcExtractor(), 1000), new TableCsvData(table, data));
     }
+   
 
 }

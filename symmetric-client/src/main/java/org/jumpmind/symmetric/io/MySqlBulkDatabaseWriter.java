@@ -43,12 +43,11 @@ import org.jumpmind.symmetric.io.data.CsvData;
 import org.jumpmind.symmetric.io.data.CsvUtils;
 import org.jumpmind.symmetric.io.data.DataEventType;
 import org.jumpmind.symmetric.io.data.writer.DataWriterStatisticConstants;
-import org.jumpmind.symmetric.io.data.writer.DefaultDatabaseWriter;
 import org.jumpmind.symmetric.io.stage.IStagedResource;
 import org.jumpmind.symmetric.io.stage.IStagingManager;
 import org.springframework.jdbc.support.nativejdbc.NativeJdbcExtractor;
 
-public class MySqlBulkDatabaseWriter extends DefaultDatabaseWriter {
+public class MySqlBulkDatabaseWriter extends AbstractBulkDatabaseWriter {
 
 
     protected NativeJdbcExtractor jdbcExtractor;
@@ -109,13 +108,11 @@ public class MySqlBulkDatabaseWriter extends DefaultDatabaseWriter {
         }
     }
 
-    public void write(CsvData data) {
+    protected void bulkWrite(CsvData data) {
         DataEventType dataEventType = data.getDataEventType();
 
         switch (dataEventType) {
             case INSERT:
-                statistics.get(batch).increment(DataWriterStatisticConstants.STATEMENTCOUNT);
-                statistics.get(batch).increment(DataWriterStatisticConstants.LINENUMBER);
                 statistics.get(batch).startTimer(DataWriterStatisticConstants.DATABASEMILLIS);
                 try {
                     String[] parsedData = data.getParsedData(CsvData.ROW_DATA);
@@ -160,6 +157,8 @@ public class MySqlBulkDatabaseWriter extends DefaultDatabaseWriter {
                 } catch (Exception ex) {
                     throw getPlatform().getSqlTemplate().translate(ex);
                 } finally {
+                    statistics.get(batch).increment(DataWriterStatisticConstants.STATEMENTCOUNT);
+                    statistics.get(batch).increment(DataWriterStatisticConstants.LINENUMBER);
                     statistics.get(batch).stopTimer(DataWriterStatisticConstants.DATABASEMILLIS);
                 }
                 break;
@@ -167,7 +166,7 @@ public class MySqlBulkDatabaseWriter extends DefaultDatabaseWriter {
             case DELETE:
             default:
                 flush();
-                super.write(data);
+                writeDefault(data);
                 break;
         }
 
@@ -204,11 +203,11 @@ public class MySqlBulkDatabaseWriter extends DefaultDatabaseWriter {
 	            throw platform.getSqlTemplate().translate(ex);
 	        } finally {
 	            statistics.get(batch).stopTimer(DataWriterStatisticConstants.DATABASEMILLIS);
+	            this.stagedInputFile.delete();
+	            createStagingFile();
+	            loadedRows = 0;
+	            loadedBytes = 0;
 	        }
-	        this.stagedInputFile.delete();
-	        createStagingFile();
-	        loadedRows = 0;
-	        loadedBytes = 0;
         }
     }
     

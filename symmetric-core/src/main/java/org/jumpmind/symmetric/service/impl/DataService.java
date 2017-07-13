@@ -35,6 +35,7 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.commons.lang.StringEscapeUtils;
@@ -54,6 +55,7 @@ import org.jumpmind.db.sql.UniqueKeyException;
 import org.jumpmind.db.sql.mapper.NumberMapper;
 import org.jumpmind.exception.IoException;
 import org.jumpmind.symmetric.ISymmetricEngine;
+import org.jumpmind.symmetric.SymmetricException;
 import org.jumpmind.symmetric.common.Constants;
 import org.jumpmind.symmetric.common.ParameterConstants;
 import org.jumpmind.symmetric.common.TableConstants;
@@ -239,7 +241,7 @@ public class DataService extends AbstractService implements IDataService {
                         request.getLastUpdateTime(), request.getSourceNodeId(),
                         request.getTargetNodeId(), request.getTriggerId(),
                         request.getRouterId(), request.isCreateTable() ? 1 : 0, 
-                        request.isDeleteFirst() ? 1 : 0 });
+                        request.isDeleteFirst() ? 1 : 0, request.getChannelId() });
     }
 
     public TableReloadRequest getTableReloadRequest(final TableReloadRequestKey key) {
@@ -392,7 +394,7 @@ public class DataService extends AbstractService implements IDataService {
 
                         transaction = platform.getSqlTemplate().startSqlTransaction();
 
-                        long loadId = engine.getSequenceService().nextVal(
+                        long loadId = engine.getSequenceService().nextVal(transaction, 
                                 Constants.SEQUENCE_OUTGOING_BATCH_LOAD_ID);
                         processInfo.setCurrentLoadId(loadId);
                         
@@ -403,6 +405,19 @@ public class DataService extends AbstractService implements IDataService {
 
                         if (isFullLoad) {
                             triggerHistories = triggerRouterService.getActiveTriggerHistories();
+                            if (reloadRequests != null && reloadRequests.size() == 1) {
+                                String channelId = reloadRequests.get(0).getChannelId();
+                                if (channelId != null) {
+                                    List<TriggerHistory> channelTriggerHistories = new ArrayList<TriggerHistory>();
+    
+                                    for (TriggerHistory history : triggerHistories) {
+                                        if (channelId.equals(engine.getTriggerRouterService().getTriggerById(history.getTriggerId()).getChannelId())) {
+                                            channelTriggerHistories.add(history);
+                                        }
+                                    }
+                                    triggerHistories = channelTriggerHistories;
+                                }
+                            }
                         }
                         else {
                             for (TableReloadRequest reloadRequest : reloadRequests) {
@@ -410,6 +425,7 @@ public class DataService extends AbstractService implements IDataService {
                                         .getActiveTriggerHistories(new Trigger(reloadRequest.getTriggerId(), null)));
                             }
                         }
+                       
                         processInfo.setDataCount(triggerHistories.size());
                         
                         Map<Integer, List<TriggerRouter>> triggerRoutersByHistoryId = triggerRouterService
@@ -526,11 +542,12 @@ public class DataService extends AbstractService implements IDataService {
 
     }
 
+    @SuppressWarnings("unchecked")
     protected Map<String, TableReloadRequest> convertReloadListToMap(List<TableReloadRequest> reloadRequests) {
         if (reloadRequests == null) {
             return null;
         }
-        Map<String, TableReloadRequest> reloadMap = new HashMap<String, TableReloadRequest>();
+        Map<String, TableReloadRequest> reloadMap = new CaseInsensitiveMap();
         for (TableReloadRequest item : reloadRequests) {
             reloadMap.put(item.getIdentifier(), item);
         }
@@ -631,7 +648,12 @@ public class DataService extends AbstractService implements IDataService {
                     List<TriggerRouter> triggerRouters = triggerRoutersByHistoryId.get(triggerHistory
                             .getTriggerHistoryId());
                     for (TriggerRouter triggerRouter : triggerRouters) {
-                        TableReloadRequest currentRequest = reloadRequests.get(triggerRouter.getTriggerId() + triggerRouter.getRouterId());
+                        String key = triggerRouter.getTriggerId() + triggerRouter.getRouterId();
+                        TableReloadRequest currentRequest = reloadRequests.get(key);
+                        if (currentRequest == null) {
+                            throw new SymmetricException("Could not locate table reload request for key '" + key + 
+                                    "'. Available requests are: " + reloadRequests.keySet());
+                        }
                         beforeSql = currentRequest.getBeforeCustomSql();
                         
                         if (isNotBlank(beforeSql)) {
@@ -926,7 +948,7 @@ public class DataService extends AbstractService implements IDataService {
         String catalogSeparator = dbInfo.getCatalogSeparator();
         String schemaSeparator = dbInfo.getSchemaSeparator();
                                           
-        String sql = String.format("select count(*) from %s where %s", table
+        String sql = String.format("select count(*) from %s t where %s", table
                 .getQualifiedTableName(quote, catalogSeparator, schemaSeparator), selectSql);
         sql = FormatUtils.replace("groupId", targetNode.getNodeGroupId(), sql);
         sql = FormatUtils.replace("externalId", targetNode.getExternalId(), sql);
@@ -1020,8 +1042,32 @@ public class DataService extends AbstractService implements IDataService {
                 this.engine.getTransformService().findTransformsFor(
                         sourceNode.getNodeGroupId(), targetNode.getNodeGroupId(), triggerRouter.getTargetTable(triggerHistory));
         
-        String sql = StringUtils.isNotBlank(overrideDeleteStatement) ? overrideDeleteStatement
-                : symmetricDialect.createPurgeSqlFor(targetNode, triggerRouter, triggerHistory, transforms);
+        if (StringUtils.isNotBlank(overrideDeleteStatement)) {
+            createPurgeEvent(transaction, overrideDeleteStatement, targetNode, sourceNode,
+                    triggerRouter, triggerHistory, isLoad, loadId, createBy);
+            
+        } else if (transforms != null && transforms.size() > 0) {
+            List<String> sqlStatements = symmetricDialect.createPurgeSqlForMultipleTables(targetNode, triggerRouter, 
+                    triggerHistory, transforms, null);
+            for (String sql : sqlStatements) {
+                createPurgeEvent(transaction, 
+                        sql,
+                        targetNode, sourceNode,
+                        triggerRouter, triggerHistory, isLoad, loadId, createBy);
+            }
+        } else {
+            createPurgeEvent(transaction, 
+                symmetricDialect.createPurgeSqlFor(targetNode, triggerRouter, triggerHistory, transforms),
+                targetNode, sourceNode,
+                triggerRouter, triggerHistory, isLoad, loadId, createBy);
+        }
+        
+    }
+
+    protected void createPurgeEvent(ISqlTransaction transaction, String sql, Node targetNode, Node sourceNode,
+            TriggerRouter triggerRouter, TriggerHistory triggerHistory, boolean isLoad, 
+            long loadId, String createBy) {
+        
         sql = FormatUtils.replace("groupId", targetNode.getNodeGroupId(), sql);
         sql = FormatUtils.replace("externalId", targetNode.getExternalId(), sql);
         sql = FormatUtils.replace("nodeId", targetNode.getNodeId(), sql);
@@ -1043,7 +1089,7 @@ public class DataService extends AbstractService implements IDataService {
             insertData(transaction, data);
         }
     }
-
+    
     public void insertSqlEvent(Node targetNode, String sql, boolean isLoad, long loadId,
             String createBy) {
         TriggerHistory history = engine.getTriggerRouterService()
@@ -1550,7 +1596,7 @@ public class DataService extends AbstractService implements IDataService {
             tableRows.add(new TableRow(table, row, null, null, null));
             List<TableRow> foreignTableRows;
             try {
-                foreignTableRows = getForeignTableRows(tableRows);
+                foreignTableRows = getForeignTableRows(tableRows, new HashSet<TableRow>());
             } catch (CloneNotSupportedException e) {
                 throw new RuntimeException(e);
             }
@@ -1589,65 +1635,87 @@ public class DataService extends AbstractService implements IDataService {
         }
     }
 
-    protected List<TableRow> getForeignTableRows(List<TableRow> tableRows) throws CloneNotSupportedException {
+    protected List<TableRow> getForeignTableRows(List<TableRow> tableRows, Set<TableRow> visited) throws CloneNotSupportedException {
         List<TableRow> fkDepList = new ArrayList<TableRow>();
         for (TableRow tableRow : tableRows) {
-            for (ForeignKey fk : tableRow.getTable().getForeignKeys()) {
-                Table table = platform.getTableFromCache(fk.getForeignTableName(), false);
-                if (table == null) {
-                    table = fk.getForeignTable();
-                    if (table == null) {                            
-                        table = platform.getTableFromCache(tableRow.getTable().getCatalog(), 
-                                tableRow.getTable().getSchema(), fk.getForeignTableName(), false);
-                    }
-                }
-                if (table != null) {
-                    Table foreignTable = (Table) table.clone();
-                    for (Column column : foreignTable.getColumns()) {
-                        column.setPrimaryKey(false);
-                    }
-                    Row whereRow = new Row(fk.getReferenceCount());
-                    String referenceColumnName = null;
-                    for (Reference ref : fk.getReferences()) {
-                        Column foreignColumn = foreignTable.findColumn(ref.getForeignColumnName());
-                        Object value = tableRow.getRow().get(ref.getLocalColumnName());
-                        referenceColumnName = ref.getLocalColumnName();
-                        whereRow.put(foreignColumn.getName(), value);
-                        foreignColumn.setPrimaryKey(true);
-                    }
-                    
-                    DmlStatement whereSt = platform.createDmlStatement(DmlType.WHERE, foreignTable, null);
-                    String whereSql = whereSt.buildDynamicSql(symmetricDialect.getBinaryEncoding(), whereRow, false, true, 
-                            foreignTable.getPrimaryKeyColumns()).substring(6);
-                    String delimiter = platform.getDatabaseInfo().getSqlCommandDelimiter();
-                    if (delimiter != null && delimiter.length() > 0) {
-                        whereSql = whereSql.substring(0, whereSql.length() - delimiter.length());
-                    }
-                    
-                    Row foreignRow = new Row(foreignTable.getColumnCount());
-                    if (foreignTable.getForeignKeyCount() > 0) {
-                        DmlStatement selectSt = platform.createDmlStatement(DmlType.SELECT, foreignTable, null);
-                        Object[] keys = whereRow.toArray(foreignTable.getPrimaryKeyColumnNames());
-                        Map<String, Object> values = sqlTemplate.queryForMap(selectSt.getSql(), keys);
-                        if (values == null) {
-                            log.warn("Unable to reload rows for missing foreign key data for table '{}', parent data not found.  Using sql='{}' with keys '{}'",table.getName(), selectSt.getSql(), keys);
-                        } else {
-                            foreignRow.putAll(values);
+            if (!visited.contains(tableRow)) {
+                visited.add(tableRow);
+                for (ForeignKey fk : tableRow.getTable().getForeignKeys()) {
+                    Table table = platform.getTableFromCache(fk.getForeignTableName(), false);
+                    if (table == null) {
+                        table = fk.getForeignTable();
+                        if (table == null) {
+                            table = platform.getTableFromCache(tableRow.getTable().getCatalog(), tableRow.getTable().getSchema(),
+                                    fk.getForeignTableName(), false);
                         }
                     }
+                    if (table != null) {
+                        Table foreignTable = (Table) table.clone();
+                        for (Column column : foreignTable.getColumns()) {
+                            column.setPrimaryKey(false);
+                        }
+                        Row whereRow = new Row(fk.getReferenceCount());
+                        String referenceColumnName = null;
+                        boolean[] nullValues = new boolean[fk.getReferenceCount()];
+                        int index = 0;
+                        for (Reference ref : fk.getReferences()) {
+                            Column foreignColumn = foreignTable.findColumn(ref.getForeignColumnName());
+                            Object value = tableRow.getRow().get(ref.getLocalColumnName());
+                            nullValues[index++] = value == null;
+                            referenceColumnName = ref.getLocalColumnName();
+                            whereRow.put(foreignColumn.getName(), value);
+                            foreignColumn.setPrimaryKey(true);
+                        }
 
-                    TableRow foreignTableRow = new TableRow(foreignTable, foreignRow, whereSql,referenceColumnName, fk.getName());
-                    fkDepList.add(foreignTableRow);
-                    log.debug("Add foreign table reference '{}' whereSql='{}'", foreignTable.getName(), whereSql);
-                } else {
-                    log.debug("Foreign table '{}' not found for foreign key '{}'", fk.getForeignTableName(), fk.getName());
-                }
-                if (fkDepList.size() > 0) {
-                    fkDepList.addAll(getForeignTableRows(fkDepList));
+                        boolean allNullValues = true;
+                        for (boolean b : nullValues) {
+                            if (!b) {
+                                allNullValues = false;
+                                break;
+                            }
+                        }
+
+                        if (!allNullValues) {
+                            DmlStatement whereSt = platform.createDmlStatement(DmlType.WHERE, foreignTable.getCatalog(),
+                                    foreignTable.getSchema(), foreignTable.getName(), foreignTable.getPrimaryKeyColumns(),
+                                    foreignTable.getColumns(), nullValues, null);
+                            String whereSql = whereSt.buildDynamicSql(symmetricDialect.getBinaryEncoding(), whereRow, false, true,
+                                    foreignTable.getPrimaryKeyColumns()).substring(6);
+                            String delimiter = platform.getDatabaseInfo().getSqlCommandDelimiter();
+                            if (delimiter != null && delimiter.length() > 0) {
+                                whereSql = whereSql.substring(0, whereSql.length() - delimiter.length());
+                            }
+
+                            Row foreignRow = new Row(foreignTable.getColumnCount());
+                            if (foreignTable.getForeignKeyCount() > 0) {
+                                DmlStatement selectSt = platform.createDmlStatement(DmlType.SELECT, foreignTable, null);
+                                Object[] keys = whereRow.toArray(foreignTable.getPrimaryKeyColumnNames());
+                                Map<String, Object> values = sqlTemplate.queryForMap(selectSt.getSql(), keys);
+                                if (values == null) {
+                                    log.warn(
+                                            "Unable to reload rows for missing foreign key data for table '{}', parent data not found.  Using sql='{}' with keys '{}'",
+                                            table.getName(), selectSt.getSql(), keys);
+                                } else {
+                                    foreignRow.putAll(values);
+                                }
+                            }
+
+                            TableRow foreignTableRow = new TableRow(foreignTable, foreignRow, whereSql, referenceColumnName, fk.getName());
+                            fkDepList.add(foreignTableRow);
+                            log.debug("Add foreign table reference '{}' whereSql='{}'", foreignTable.getName(), whereSql);
+                        } else {
+                            log.debug("The foreign table reference was null for {}", foreignTable.getName());
+                        }
+                    } else {
+                        log.debug("Foreign table '{}' not found for foreign key '{}'", fk.getForeignTableName(), fk.getName());
+                    }
+                    if (fkDepList.size() > 0) {
+                        fkDepList.addAll(getForeignTableRows(fkDepList, visited));
+                    }
                 }
             }
         }
-        
+
         return fkDepList;
     }
 
@@ -2072,6 +2140,7 @@ public class DataService extends AbstractService implements IDataService {
         String whereSql;
         String referenceColumnName;
         String fkName;
+        String fkColumnValues = null;
         
         public TableRow(Table table, Row row, String whereSql, String referenceColumnName, String fkName) {
             this.table = table;
@@ -2080,6 +2149,28 @@ public class DataService extends AbstractService implements IDataService {
             this.referenceColumnName = referenceColumnName;
             this.fkName = fkName;
         }
+        
+        protected String getFkColumnValues() {
+            if (fkColumnValues == null) {
+                StringBuilder builder = new StringBuilder();
+                ForeignKey[] keys = table.getForeignKeys();
+                for (ForeignKey foreignKey : keys) {
+                    if (foreignKey.getName().equals(fkName)) {
+                        Reference[] refs = foreignKey.getReferences();
+                        for (Reference ref : refs) {
+                            Object value = row.get(ref.getLocalColumnName());
+                            if (value != null) {
+                                builder.append("\"").append(value).append("\",");
+                            } else {
+                                builder.append("null,");
+                            }
+                        }
+                    }
+                }
+                fkColumnValues = builder.toString();
+            }
+            return fkColumnValues;
+        }
 
         @Override
         public int hashCode() {
@@ -2087,6 +2178,7 @@ public class DataService extends AbstractService implements IDataService {
             int result = 1;
             result = prime * result + ((table == null) ? 0 : table.hashCode());
             result = prime * result + ((whereSql == null) ? 0 : whereSql.hashCode());
+            result = prime * result + ((getFkColumnValues() == null) ? 0 : getFkColumnValues().hashCode());
             return result;
         }
 
@@ -2094,9 +2186,15 @@ public class DataService extends AbstractService implements IDataService {
         public boolean equals(Object o) {
             if (o instanceof TableRow) {
                 TableRow tr = (TableRow) o;
-                return tr.table.equals(table) && tr.whereSql.equals(whereSql);
+                return tr.table.equals(table) && tr.whereSql.equals(whereSql) 
+                        && tr.getFkColumnValues().equals(getFkColumnValues().toString());
             }
             return false;
+        }
+        
+        @Override
+        public String toString() {
+            return table.getFullyQualifiedTableName() + ":" + whereSql + ":" + getFkColumnValues();
         }
                 
         public Table getTable() {
@@ -2117,14 +2215,19 @@ public class DataService extends AbstractService implements IDataService {
             return fkName;
         }
         
+        
+        
     }
 
     public class DataMapper implements ISqlRowMapper<Data> {
         public Data mapRow(Row row) {
             Data data = new Data();
-            data.putCsvData(CsvData.ROW_DATA, row.getString("ROW_DATA", false));
-            data.putCsvData(CsvData.PK_DATA, row.getString("PK_DATA", false));
-            data.putCsvData(CsvData.OLD_DATA, row.getString("OLD_DATA", false));
+            String rowData = row.getString("ROW_DATA", false);
+            data.putCsvData(CsvData.ROW_DATA, isNotBlank(rowData) ? rowData : null);
+            String pkData = row.getString("PK_DATA", false);
+            data.putCsvData(CsvData.PK_DATA, isNotBlank(pkData) ? pkData : null);
+            String oldData = row.getString("OLD_DATA", false);
+            data.putCsvData(CsvData.OLD_DATA, isNotBlank(oldData) ? oldData : null);
             data.putAttribute(CsvData.ATTRIBUTE_CHANNEL_ID, row.getString("CHANNEL_ID"));
             data.putAttribute(CsvData.ATTRIBUTE_TX_ID, row.getString("TRANSACTION_ID", false));
             String tableName = row.getString("TABLE_NAME");

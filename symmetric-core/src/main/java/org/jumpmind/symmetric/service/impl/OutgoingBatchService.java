@@ -47,6 +47,7 @@ import org.jumpmind.symmetric.model.Channel;
 import org.jumpmind.symmetric.model.LoadSummary;
 import org.jumpmind.symmetric.model.NodeChannel;
 import org.jumpmind.symmetric.model.NodeGroupChannelWindow;
+import org.jumpmind.symmetric.model.NodeGroupLinkAction;
 import org.jumpmind.symmetric.model.NodeHost;
 import org.jumpmind.symmetric.model.NodeSecurity;
 import org.jumpmind.symmetric.model.OutgoingBatch;
@@ -221,14 +222,13 @@ public class OutgoingBatchService extends AbstractService implements IOutgoingBa
                         outgoingBatch.getLoadMillis(), outgoingBatch.getExtractMillis(),
                         outgoingBatch.getSqlState(), outgoingBatch.getSqlCode(),
                         FormatUtils.abbreviateForLogging(outgoingBatch.getSqlMessage()),
-                        outgoingBatch.getFailedDataId(), outgoingBatch.getLastUpdatedHostName(),
-                        outgoingBatch.getLastUpdatedTime(), outgoingBatch.getSummary(), 
+                        outgoingBatch.getFailedDataId(), outgoingBatch.getLastUpdatedHostName(), outgoingBatch.getSummary(), 
                         outgoingBatch.getBatchId(), outgoingBatch.getNodeId() }, new int[] { Types.CHAR, Types.BIGINT,
                         Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.BIGINT, Types.BIGINT, Types.BIGINT,
                         Types.BIGINT, Types.BIGINT, Types.BIGINT, Types.BIGINT, Types.BIGINT,
                         Types.BIGINT, Types.BIGINT, Types.BIGINT, Types.BIGINT, Types.BIGINT,
                         Types.BIGINT, Types.BIGINT, Types.BIGINT, Types.VARCHAR, Types.NUMERIC,
-                        Types.VARCHAR, Types.BIGINT, Types.VARCHAR, Types.TIMESTAMP, Types.VARCHAR, 
+                        Types.VARCHAR, Types.BIGINT, Types.VARCHAR, Types.VARCHAR, 
                         symmetricDialect.getSqlTypeForIds(), Types.VARCHAR });
     }
 
@@ -258,7 +258,7 @@ public class OutgoingBatchService extends AbstractService implements IOutgoingBa
 
         long batchId = outgoingBatch.getBatchId();
         if (batchId <= 0) {
-            batchId = sequenceService.nextVal(Constants.SEQUENCE_OUTGOING_BATCH);
+            batchId = sequenceService.nextVal(transaction, Constants.SEQUENCE_OUTGOING_BATCH);
         }
         transaction.prepareAndExecute(getSql("insertOutgoingBatchSql"), batchId, outgoingBatch
                 .getNodeId(), outgoingBatch.getChannelId(), outgoingBatch.getStatus().name(),
@@ -395,8 +395,13 @@ public class OutgoingBatchService extends AbstractService implements IOutgoingBa
     	return getOutgoingBatches(nodeId, null, includeDisabledChannels);
     }
 
-    @Override
     public OutgoingBatches getOutgoingBatches(String nodeId, String channelThread, boolean includeDisabledChannels) {
+        return getOutgoingBatches(nodeId, channelThread, null, null, includeDisabledChannels);
+    }
+    
+    @Override
+    public OutgoingBatches getOutgoingBatches(String nodeId, String channelThread, NodeGroupLinkAction eventAction, NodeGroupLinkAction defaultEventAction,
+            boolean includeDisabledChannels) {
         long ts = System.currentTimeMillis();
         final int maxNumberOfBatchesToSelect = parameterService.getInt(
                 ParameterConstants.OUTGOING_BATCH_MAX_BATCHES_TO_SELECT, 1000);
@@ -404,8 +409,24 @@ public class OutgoingBatchService extends AbstractService implements IOutgoingBa
         String sql = null;
         Object[] params = null;
         int[] types = null;
-        
-        if (channelThread != null) {
+
+        if (eventAction != null) {
+            if (eventAction.equals(defaultEventAction)) {
+                sql = getSql("selectOutgoingBatchPrefixSql", "selectOutgoingBatchChannelActionNullSql");                
+            } else {
+                sql = getSql("selectOutgoingBatchPrefixSql", "selectOutgoingBatchChannelActionSql");                                
+            }
+            
+            params = new Object[] { eventAction.name(),
+                nodeId, channelThread, OutgoingBatch.Status.RQ.name(), OutgoingBatch.Status.NE.name(),
+                OutgoingBatch.Status.QY.name(), OutgoingBatch.Status.SE.name(),
+                OutgoingBatch.Status.LD.name(), OutgoingBatch.Status.ER.name(),
+                OutgoingBatch.Status.IG.name(), OutgoingBatch.Status.RS.name()};
+            types = new int[] {
+                    Types.CHAR, Types.VARCHAR, Types.VARCHAR, Types.CHAR, Types.CHAR, Types.CHAR, Types.CHAR,
+                    Types.CHAR, Types.CHAR, Types.CHAR, Types.CHAR
+            };
+        } else if (channelThread != null) {
         	sql = getSql("selectOutgoingBatchPrefixSql", "selectOutgoingBatchChannelSql");
         	params = new Object[] { nodeId, channelThread, OutgoingBatch.Status.RQ.name(), OutgoingBatch.Status.NE.name(),
                     OutgoingBatch.Status.QY.name(), OutgoingBatch.Status.SE.name(),
@@ -415,7 +436,7 @@ public class OutgoingBatchService extends AbstractService implements IOutgoingBa
         	        Types.VARCHAR, Types.VARCHAR, Types.CHAR, Types.CHAR, Types.CHAR, Types.CHAR,
         	        Types.CHAR, Types.CHAR, Types.CHAR, Types.CHAR
         	};
-        }
+        } 
         else {
         	sql = getSql("selectOutgoingBatchPrefixSql", "selectOutgoingBatchSql");
         	params = new Object[] { nodeId, OutgoingBatch.Status.RQ.name(), OutgoingBatch.Status.NE.name(),

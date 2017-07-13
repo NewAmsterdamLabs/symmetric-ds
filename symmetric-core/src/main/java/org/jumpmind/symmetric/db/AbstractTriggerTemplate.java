@@ -62,6 +62,10 @@ abstract public class AbstractTriggerTemplate {
 
     static final String UPDATE_TRIGGER_TEMPLATE = "updateTriggerTemplate";
 
+    static final String INSERT_WITH_RELOAD_TRIGGER_TEMPLATE = "insertReloadTriggerTemplate";
+
+    static final String UPDATE_WITH_RELOAD_TRIGGER_TEMPLATE = "updateReloadTriggerTemplate";
+
     static final String DELETE_TRIGGER_TEMPLATE = "deleteTriggerTemplate";
 
     static final String INITIAL_LOAD_SQL_TEMPLATE = "initialLoadSqlTemplate";
@@ -262,6 +266,15 @@ abstract public class AbstractTriggerTemplate {
         return prefix;
     }
 
+    protected String getSourceTableSchema(Table table) {
+        String prefix = (isNotBlank(table.getSchema()) ? table.getSchema() : "");
+        if (isBlank(prefix)) {
+            prefix = (isNotBlank(symmetricDialect.getPlatform().getDefaultSchema()) ? 
+                    symmetricDialect.getPlatform().getDefaultSchema() : "");
+        }
+        return prefix;
+    }
+
     protected String getSourceTablePrefix(TriggerHistory triggerHistory) {
         String prefix = (isNotBlank(triggerHistory.getSourceSchemaName()) ? SymmetricUtils.quote(
                 symmetricDialect, triggerHistory.getSourceSchemaName()) + symmetricDialect.getPlatform().getDatabaseInfo().getSchemaSeparator() : "");
@@ -275,6 +288,15 @@ abstract public class AbstractTriggerTemplate {
             prefix = (isNotBlank(symmetricDialect.getPlatform().getDefaultCatalog()) ? SymmetricUtils
                     .quote(symmetricDialect, symmetricDialect.getPlatform().getDefaultCatalog())
                     + "." : "") + prefix;
+        }
+        return prefix;
+    }
+
+    protected String getSourceTableSchema(TriggerHistory triggerHistory) {
+        String prefix = (isNotBlank(triggerHistory.getSourceSchemaName()) ? triggerHistory.getSourceSchemaName() : "");
+        if (isBlank(prefix)) {
+            prefix = (isNotBlank(symmetricDialect.getPlatform().getDefaultSchema()) ?
+                    symmetricDialect.getPlatform().getDefaultSchema() : "");
         }
         return prefix;
     }
@@ -353,6 +375,12 @@ abstract public class AbstractTriggerTemplate {
                 history.getParsedPkColumnNames(), true);
 
 		String ddl = sqlTemplates.get(dml.name().toLowerCase() + "TriggerTemplate");
+		if (trigger.isStreamRow()) {
+		    String reloadDdl = sqlTemplates.get(dml.name().toLowerCase() + "ReloadTriggerTemplate");
+		    if (reloadDdl != null && reloadDdl.length() > 0) {
+		        ddl = reloadDdl;
+		    }
+		}
     	if (dml.getDmlType().equals(DmlType.UPDATE) && trigger.isUseHandleKeyUpdates()) {
     		String temp = sqlTemplates.get(dml.name().toLowerCase() + "HandleKeyUpdates" + "TriggerTemplate");
     		if (StringUtils.trimToNull(temp)!=null) {
@@ -377,6 +405,19 @@ abstract public class AbstractTriggerTemplate {
         String ddl = sqlTemplates.get(dml.name().toLowerCase() + "PostTriggerTemplate");
         return replaceTemplateVariables(dml, trigger, history, channel, tablePrefix, originalTable, table,
                 defaultCatalog, defaultSchema, ddl);
+    }
+
+    public String createDdlTrigger(String tablePrefix, String defaultCatalog, String defaultSchema, String triggerName) {
+        String ddl = sqlTemplates.get("ddlTriggerTemplate");
+        if (ddl == null) {
+            return null;
+        }
+        
+        ddl = FormatUtils.replace("triggerName", triggerName, ddl);
+        ddl = FormatUtils.replace("prefixName", tablePrefix, ddl);
+        ddl = replaceDefaultSchemaAndCatalog(ddl);
+
+        return ddl;
     }
 
     protected String getDefaultTargetTableName(Trigger trigger, TriggerHistory history) {
@@ -409,8 +450,8 @@ abstract public class AbstractTriggerTemplate {
         ddl = FormatUtils.replace("txIdExpression",
                 symmetricDialect.preProcessTriggerSqlClause(triggerExpression), ddl);
 
-        ddl = FormatUtils.replace("channelExpression", symmetricDialect.preProcessTriggerSqlClause(getChannelExpression(trigger)),
-                ddl);
+        ddl = FormatUtils.replace("channelExpression", symmetricDialect.preProcessTriggerSqlClause(
+                getChannelExpression(trigger, history, originalTable)), ddl);
         
         ddl = FormatUtils.replace("externalSelect", (trigger.getExternalSelect() == null ? "null"
                 : "(" + symmetricDialect.preProcessTriggerSqlClause(trigger.getExternalSelect())
@@ -480,6 +521,10 @@ abstract public class AbstractTriggerTemplate {
         ddl = FormatUtils.replace(
                 "oldKeys",
                 buildColumnsString(ORIG_TABLE_ALIAS, oldTriggerValue, oldColumnPrefix,
+                        table, primaryKeyColumns, dml, true, channel, trigger).toString(), ddl);
+        ddl = FormatUtils.replace(
+                "newKeys",
+                buildColumnsString(ORIG_TABLE_ALIAS, newTriggerValue, newColumnPrefix,
                         table, primaryKeyColumns, dml, true, channel, trigger).toString(), ddl);
         ddl = FormatUtils.replace(
                 "oldNewPrimaryKeyJoin",
@@ -556,10 +601,13 @@ abstract public class AbstractTriggerTemplate {
         }
     }
     
-    protected String getChannelExpression(Trigger trigger) {
+    protected String getChannelExpression(Trigger trigger, TriggerHistory history, Table originalTable) {
         if (trigger.getChannelId().equals(Constants.CHANNEL_DYNAMIC)) {
             if (StringUtils.isNotBlank(trigger.getChannelExpression())) {
-                return trigger.getChannelExpression();
+                String expr = trigger.getChannelExpression();
+                expr = FormatUtils.replace("schemaName", history == null ? getSourceTableSchema(originalTable)
+                        : getSourceTableSchema(history), expr);
+                return expr;
             } else {
                 throw new IllegalStateException("When the channel is set to '" + Constants.CHANNEL_DYNAMIC + "', a channel expression must be provided.");
             }

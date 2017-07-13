@@ -72,8 +72,10 @@ public class Trigger implements Serializable {
 
     private boolean useCaptureOldData = true;
 
-    private boolean useHandleKeyUpdates = false;
+    private boolean useHandleKeyUpdates = true;
 
+    private boolean streamRow = false;
+    
     private String nameForInsertTrigger;
 
     private String nameForUpdateTrigger;
@@ -576,6 +578,14 @@ public class Trigger implements Serializable {
         return syncKeyNames;
     }
 
+    public boolean isStreamRow() {
+        return streamRow;
+    }
+
+    public void setStreamRow(boolean streamRow) {
+        this.streamRow = streamRow;
+    }
+
     @SuppressWarnings("unchecked")
     private List<String> getSyncKeyNamesAsList() {
         if (syncKeyNames != null && syncKeyNames.length() > 0) {
@@ -715,12 +725,21 @@ public class Trigger implements Serializable {
 
     public boolean matches(Table table, String defaultCatalog, String defaultSchema,
             boolean ignoreCase) {
-        boolean schemaAndCatalogMatch = (StringUtils.equals(sourceCatalogName, table.getCatalog()) || (StringUtils
-                .isBlank(sourceCatalogName) && StringUtils.equals(defaultCatalog,
-                table.getCatalog())))
-                && (StringUtils.equals(sourceSchemaName, table.getSchema()) || (StringUtils
-                        .isBlank(sourceSchemaName) && StringUtils.equals(defaultSchema,
-                        table.getSchema())));
+        boolean catalogMatch = false;
+        if (isSourceCatalogNameWildCarded()) {
+            catalogMatch = matches(sourceCatalogName, table.getCatalog(), ignoreCase);
+        } else {
+            catalogMatch = (StringUtils.equals(sourceCatalogName, table.getCatalog()) ||
+                    (StringUtils.isBlank(sourceCatalogName) && StringUtils.equals(defaultCatalog, table.getCatalog())));            
+        }
+
+        boolean schemaMatch = false;
+        if (isSourceSchemaNameWildCarded()) {
+            schemaMatch = matches(sourceSchemaName, table.getSchema(), ignoreCase);
+        } else {
+            schemaMatch = (StringUtils.equals(sourceSchemaName, table.getSchema()) ||
+                    (StringUtils.isBlank(sourceSchemaName) && StringUtils.equals(defaultSchema, table.getSchema())));            
+        }
 
         boolean tableMatches = ignoreCase ? table.getName().equalsIgnoreCase(sourceTableName)
                 : table.getName().equals(sourceTableName);
@@ -728,7 +747,7 @@ public class Trigger implements Serializable {
         if (!tableMatches && isSourceTableNameWildCarded()) {
             tableMatches = matches(sourceTableName, table.getName(), ignoreCase);
         }
-        return schemaAndCatalogMatch && tableMatches;
+        return catalogMatch && schemaMatch && tableMatches;
     }
 
     public boolean matches(Trigger trigger) {

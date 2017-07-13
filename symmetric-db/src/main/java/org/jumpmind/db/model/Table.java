@@ -613,7 +613,8 @@ public class Table implements Serializable, Cloneable, Comparable<Table> {
             Column column = (Column) it.next();
             if (column.getJdbcTypeCode() == ColumnTypes.NCHAR || column.getJdbcTypeCode() == ColumnTypes.NVARCHAR
                     || column.getJdbcTypeCode() == ColumnTypes.LONGNVARCHAR || column.getJdbcTypeCode() == ColumnTypes.NCLOB
-                    || column.getJdbcTypeName().startsWith("NVARCHAR") || column.getJdbcTypeName().startsWith("NCHAR")) {
+                    || (column.getJdbcTypeName() != null 
+                        && (column.getJdbcTypeName().startsWith("NVARCHAR") || column.getJdbcTypeName().startsWith("NCHAR")))) {
                 return true;
             }
         }
@@ -1145,7 +1146,7 @@ public class Table implements Serializable, Cloneable, Comparable<Table> {
                     break;
                 }
             }
-            if (orderedColumns[i] == null) {
+            if (orderedColumns[i] == null && log.isDebugEnabled()) {
                 log.debug("Could not find column with the name of {} on table {}", name, table.toVerboseString());
             }
         }

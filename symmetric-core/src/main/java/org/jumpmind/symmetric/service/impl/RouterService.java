@@ -329,8 +329,8 @@ public class RouterService extends AbstractService implements IRouterService {
                else {
                    NodeSecurity targetNodeSecurity = engine.getNodeService().findNodeSecurity(load.getTargetNodeId());
                    
-                   boolean registered = targetNodeSecurity.getRegistrationTime() != null 
-                   		|| targetNodeSecurity.getNodeId().equals(targetNodeSecurity.getCreatedAtNodeId());
+                   boolean registered = targetNodeSecurity != null  && (targetNodeSecurity.getRegistrationTime() != null 
+                   		|| targetNodeSecurity.getNodeId().equals(targetNodeSecurity.getCreatedAtNodeId()));
                    if (registered) {  
                        // Make loads unique to the target and create time
                        String key = load.getTargetNodeId() + "::" + load.getCreateTime().toString();
@@ -338,6 +338,8 @@ public class RouterService extends AbstractService implements IRouterService {
                            requestsSplitByLoad.put(key, new ArrayList<TableReloadRequest>());
                        }
                        requestsSplitByLoad.get(key).add(load);
+                   } else {
+                       log.warn("There was a load queued up for '{}', but the node is not registered.  It is being ignored", load.getTargetNodeId());
                    }
                }
             }
@@ -817,6 +819,8 @@ public class RouterService extends AbstractService implements IRouterService {
         final int maxNumberOfEventsBeforeFlush = parameterService
                 .getInt(ParameterConstants.ROUTING_FLUSH_JDBC_BATCH_SIZE);
         try {
+            long ts = System.currentTimeMillis();
+            long startTime = System.currentTimeMillis();
             nextData = reader.take();
             do {
                 if (nextData != null) {
@@ -861,6 +865,17 @@ public class RouterService extends AbstractService implements IRouterService {
                                 statsDataEventCount = 0;
                             }
                         }
+              
+                        long routeTs = System.currentTimeMillis() - ts;
+                        if (routeTs > 60000 && context != null) {
+                            log.info(
+                                    "Routing for channel '{}' has been processing for {} seconds. The following stats have been gathered: "
+                                            + "totalDataRoutedCount={}, totalDataEventCount={}, startDataId={}, endDataId={}, dataReadCount={}, peekAheadFillCount={}, transactions={}, dataGaps={}",
+                                    new Object[] {  context.getChannel().getChannelId(), ((System.currentTimeMillis()-startTime) / 1000), totalDataCount, totalDataEventCount, context.getStartDataId(),
+                                            context.getEndDataId(), context.getDataReadCount(), context.getPeekAheadFillCount(),
+                                            context.getTransactions().toString(), context.getDataGaps().toString() });
+                            ts = System.currentTimeMillis();
+                        }
 
                         context.setLastDataProcessed(data);
                     }
@@ -868,6 +883,14 @@ public class RouterService extends AbstractService implements IRouterService {
                     data = null;
                 }
             } while (data != null);
+            
+            long routeTime = System.currentTimeMillis() - startTime;
+            if (routeTime > 60000 && context != null) {
+                log.info(
+                        "Done routing for channel '{}' which took {} seconds",
+                        new Object[] { context.getChannel().getChannelId(), ((System.currentTimeMillis() - startTime) / 1000) });
+                ts = System.currentTimeMillis();
+            }
 
         } finally {
             reader.setReading(false);
@@ -1004,7 +1027,7 @@ public class RouterService extends AbstractService implements IRouterService {
                 if (dataMetaData.getData().getDataEventType() == DataEventType.RELOAD) {
                     long loadId = context.getLastLoadId();
                     if (loadId < 0) {
-                        loadId = engine.getSequenceService().nextVal(Constants.SEQUENCE_OUTGOING_BATCH_LOAD_ID);
+                        loadId = engine.getSequenceService().nextVal(context.getSqlTransaction(), Constants.SEQUENCE_OUTGOING_BATCH_LOAD_ID);
                         context.setLastLoadId(loadId);
                     }
                     batch.setLoadId(loadId);

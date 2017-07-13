@@ -28,6 +28,7 @@ import java.util.Map;
 import org.jumpmind.db.sql.ISqlRowMapper;
 import org.jumpmind.db.sql.ISqlTransaction;
 import org.jumpmind.db.sql.Row;
+import org.jumpmind.db.sql.SqlTransactionListenerAdapter;
 import org.jumpmind.db.sql.UniqueKeyException;
 import org.jumpmind.symmetric.common.Constants;
 import org.jumpmind.symmetric.common.ParameterConstants;
@@ -86,17 +87,27 @@ public class SequenceService extends AbstractService implements ISequenceService
 
     public synchronized long nextVal(String name) {
         if (!parameterService.is(ParameterConstants.CLUSTER_LOCKING_ENABLED) && getSequenceDefinition(name).getCacheSize() > 0) {
-            return nextValFromCache(name);
+            return nextValFromCache(null, name);
         }
         return nextValFromDatabase(name);
     }
 
-    @Deprecated
-    public synchronized long nextVal(ISqlTransaction transaction, String name) {
-        return nextVal(name);
+    public synchronized long nextVal(ISqlTransaction transaction, final String name) {
+        if (transaction != null) {
+            transaction.addSqlTransactionListener(new SqlTransactionListenerAdapter() {
+                @Override
+                public void transactionRolledBack() {
+                    sequenceCache.remove(name);
+                }
+            });
+        }
+        if (!parameterService.is(ParameterConstants.CLUSTER_LOCKING_ENABLED) && getSequenceDefinition(transaction, name).getCacheSize() > 0) {
+            return nextValFromCache(transaction, name);
+        }
+        return nextValFromDatabase(transaction, name);
     }
 
-    protected long nextValFromCache(String name) {
+    protected long nextValFromCache(ISqlTransaction transaction, String name) {
         CachedRange range = sequenceCache.get(name);
         if (range != null) {
             long currentValue = range.getCurrentValue();
@@ -107,7 +118,7 @@ public class SequenceService extends AbstractService implements ISequenceService
                 sequenceCache.remove(name);
             }
         }
-        return nextValFromDatabase(name);
+        return nextValFromDatabase(transaction, name);
     }
     
     protected long nextValFromDatabase(final String name) {
@@ -120,8 +131,7 @@ public class SequenceService extends AbstractService implements ISequenceService
 
     protected long nextValFromDatabase(ISqlTransaction transaction, String name) {
         if (transaction == null) {
-            long v= nextValFromDatabase(name);
-            return v;
+            return nextValFromDatabase(name);
         } else {
             long sequenceTimeoutInMs = parameterService.getLong(
                     ParameterConstants.SEQUENCE_TIMEOUT_MS, 5000);
@@ -148,16 +158,16 @@ public class SequenceService extends AbstractService implements ISequenceService
                 nextVal = sequence.getMinValue();
             } else {
                 throw new IllegalStateException(String.format(
-                        "The sequence named %s has reached its max value. (%d) "
-                                + "No more numbers can be handed out.", sequence.getMaxValue()));
+                        "The sequence named %s has reached it's max value.  "
+                                + "No more numbers can be handled out.", name));
             }
         } else if (nextVal < sequence.getMinValue()) {
             if (sequence.isCycle()) {
                 nextVal = sequence.getMaxValue();
             } else {
                 throw new IllegalStateException(String.format(
-                        "The sequence named %s has reached its min value. (%d) "
-                                + "No more numbers can be handed out.", name, sequence.getMinValue()));
+                        "The sequence named %s has reached it's min value.  "
+                                + "No more numbers can be handled out.", name));
             }
         }
 
@@ -207,9 +217,14 @@ public class SequenceService extends AbstractService implements ISequenceService
         return sequence;
     }
 
-    @Deprecated
     public synchronized long currVal(ISqlTransaction transaction, String name) {
-        return currVal(name);
+        if (!parameterService.is(ParameterConstants.CLUSTER_LOCKING_ENABLED)) {
+            CachedRange range = sequenceCache.get(name);
+            if (range != null) {
+                return range.getCurrentValue();
+            }
+        }
+        return transaction.queryForLong(getSql("getCurrentValueSql"), name);
     }
 
     public synchronized long currVal(final String name) {
@@ -222,7 +237,7 @@ public class SequenceService extends AbstractService implements ISequenceService
 
         return new DoTransaction<Long>() {
             public Long execute(ISqlTransaction transaction) {
-                return transaction.queryForLong(getSql("getCurrentValueSql"), name);    
+                return currVal(transaction, name);    
             }            
         }.execute();
     }

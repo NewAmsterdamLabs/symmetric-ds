@@ -35,6 +35,7 @@ import org.jumpmind.db.platform.DatabaseNamesConstants;
 import org.jumpmind.db.platform.IDatabasePlatform;
 import org.jumpmind.db.platform.IDdlBuilder;
 import org.jumpmind.db.platform.PermissionResult;
+import org.jumpmind.db.platform.PermissionResult.Status;
 import org.jumpmind.db.platform.PermissionType;
 import org.jumpmind.db.sql.ISqlTemplate;
 import org.jumpmind.db.sql.SqlScript;
@@ -189,7 +190,7 @@ public class DatabasePlatformTest {
         Table tableFromDatabase = dropCreateAndThenReadTable(table);
         
         table.getColumnWithName("ID").setAutoIncrement(false);
-        table.getColumnWithName("COL1").setSize("1000");
+        table.getColumnWithName("COL1").setSize("254");
         table.getColumnWithName("COL1").setRequired(true);
         
         platform.alterTables(false, table);
@@ -200,7 +201,7 @@ public class DatabasePlatformTest {
         
         /* sqlite character fields do not limit based on size */
         if (!platform.getName().equals(DatabaseNamesConstants.SQLITE)) {
-            assertEquals(1000, tableFromDatabase.getColumnWithName("COL1").getSizeAsInt());
+            assertEquals(254, tableFromDatabase.getColumnWithName("COL1").getSizeAsInt());
         }
         
     }
@@ -302,10 +303,7 @@ public class DatabasePlatformTest {
     	List<PermissionResult> results = platform.checkSymTablePermissions(PermissionType.values());
     	
     	for (PermissionResult result : results) {
-    		System.out.println(result.toString());
-    		if (result.getException() != null) {
-    			System.out.println(result.getException().toString());
-    		}
+    		assertTrue(!result.getStatus().equals(Status.FAIL));
     	}
     }
 }

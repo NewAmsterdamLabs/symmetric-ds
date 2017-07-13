@@ -41,10 +41,10 @@ public class OutgoingBatchServiceSqlMap extends AbstractSqlMap {
         putSql("selectCountBatchesPrefixSql", "select count(*) from $(outgoing_batch)   ");
 
         putSql("cancelLoadBatchesSql",
-                "update $(outgoing_batch) set ignore_count=1, status='OK', error_flag=0 where load_id=?");
+                "update $(outgoing_batch) set ignore_count=1, status='OK', error_flag=0, last_update_time=current_timestamp where load_id=?");
 
         putSql("cancelChannelBatchesSql",
-                "update $(outgoing_batch) set ignore_count=1, status='OK', error_flag=0 where channel_id=? and status != 'OK'");
+                "update $(outgoing_batch) set ignore_count=1, status='OK', error_flag=0, last_update_time=current_timestamp where channel_id=? and status != 'OK'");
         
         putSql("cancelChannelBatchesTableSql", " and summary=?");
 
@@ -59,7 +59,7 @@ public class OutgoingBatchServiceSqlMap extends AbstractSqlMap {
                         + "  reload_event_count=?, insert_event_count=?, update_event_count=?, delete_event_count=?, other_event_count=?,   "
                         + "  ignore_count=?, router_millis=?, network_millis=?, filter_millis=?,                                                            "
                         + "  load_millis=?, extract_millis=?, sql_state=?, sql_code=?, sql_message=?,                                       "
-                        + "  failed_data_id=?, last_update_hostname=?, last_update_time=?, summary=? where batch_id=? and node_id=?                    ");
+                        + "  failed_data_id=?, last_update_hostname=?, last_update_time=current_timestamp, summary=? where batch_id=? and node_id=?                    ");
 
         putSql("findOutgoingBatchSql", "where batch_id=? and node_id=?  ");
 
@@ -70,6 +70,16 @@ public class OutgoingBatchServiceSqlMap extends AbstractSqlMap {
 
         putSql("selectOutgoingBatchChannelSql", 
                 " join $(channel) c on c.channel_id = b.channel_id where node_id = ? and c.queue = ? and status in (?, ?, ?, ?, ?, ?, ?, ?) order by batch_id asc   ");
+
+        putSql("selectOutgoingBatchChannelActionSql", 
+                " join $(channel) c on c.channel_id = b.channel_id" + 
+                " where c.data_event_action = ?" +
+                " and b.node_id = ? and c.queue = ? and b.status in (?, ?, ?, ?, ?, ?, ?, ?) order by b.batch_id asc   ");
+
+        putSql("selectOutgoingBatchChannelActionNullSql", 
+                " join $(channel) c on c.channel_id = b.channel_id" + 
+                " where (c.data_event_action is null or c.data_event_action = ?)" +
+                " and b.node_id = ? and c.queue = ? and b.status in (?, ?, ?, ?, ?, ?, ?, ?) order by b.batch_id asc   ");
 
         putSql("selectOutgoingBatchRangeSql",
                 "where batch_id between ? and ? order by batch_id   ");
@@ -114,15 +124,13 @@ public class OutgoingBatchServiceSqlMap extends AbstractSqlMap {
                         + "  from $(outgoing_batch) where status in (:STATUS_LIST) group by status, node_id order by oldest_batch_time asc   ");
 
         putSql("updateOutgoingBatchesStatusSql",
-                "update $(outgoing_batch) set status=? where status = ?   ");
+                "update $(outgoing_batch) set status=?, last_update_time=current_timestamp where status = ?   ");
 
         putSql("getLoadSummariesSql",
                 "select b.load_id, b.node_id, b.status, b.create_by, max(error_flag) as error_flag, count(*) as cnt, min(b.create_time) as create_time,          "
               + "       max(b.last_update_time) as last_update_time, min(b.batch_id) as current_batch_id,  "
               + "       min(b.data_event_count) as current_data_event_count, b.channel_id                                                                                      "
-              + "from $(outgoing_batch) b inner join                                                                                                            "
-              + "     $(data_event) e on b.batch_id=e.batch_id inner join                                                                                       "
-              + "     $(data) d on d.data_id=e.data_id                                                                                                          "
+              + "from $(outgoing_batch) b                                                                                                   "
               + "     join $(channel) c on c.channel_id = b.channel_id 																							"					
               + "where c.reload_flag = 1                                                                                                                    "
               + " and b.load_id > 0                      				                                                                                    "

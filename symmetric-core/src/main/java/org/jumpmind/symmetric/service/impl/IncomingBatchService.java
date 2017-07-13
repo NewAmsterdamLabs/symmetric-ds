@@ -214,6 +214,7 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
                         || !parameterService
                                 .is(ParameterConstants.INCOMING_BATCH_SKIP_DUPLICATE_BATCHES_ENABLED)) {
                     okayToProcess = true;
+                    batch.setErrorFlag(existingBatch.isErrorFlag());
                     existingBatch.setStatus(Status.LD);
                     log.info("Retrying batch {}", batch.getNodeBatchId());
                 } else if (existingBatch.getStatus() == Status.IG) {
@@ -264,13 +265,13 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
 	                            batch.getIgnoreCount(), batch.getIgnoreRowCount(), batch.getMissingDeleteCount(),
 	                            batch.getSkipCount(), batch.getSqlState(), batch.getSqlCode(),
 	                            FormatUtils.abbreviateForLogging(batch.getSqlMessage()),
-	                            batch.getLastUpdatedHostName(), batch.getLastUpdatedTime(), batch.getSummary() },
+	                            batch.getLastUpdatedHostName(), batch.getSummary() },
 	                    new int[] { Types.NUMERIC, Types.VARCHAR, Types.VARCHAR, Types.CHAR,
 	                            Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
 	                            Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
 	                            Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, 
 	                            Types.NUMERIC, Types.VARCHAR, Types.NUMERIC, Types.VARCHAR, 
-	                            Types.VARCHAR, Types.TIMESTAMP, Types.VARCHAR });
+	                            Types.VARCHAR, Types.VARCHAR });
         	}
         }
     }
@@ -345,13 +346,13 @@ public class IncomingBatchService extends AbstractService implements IIncomingBa
                             batch.getMissingDeleteCount(), batch.getSkipCount(),
                             batch.getSqlState(), batch.getSqlCode(),
                             FormatUtils.abbreviateForLogging(batch.getSqlMessage()),
-                            batch.getLastUpdatedHostName(), batch.getLastUpdatedTime(), batch.getSummary(),
+                            batch.getLastUpdatedHostName(), batch.getSummary(),
                             batch.getBatchId(), batch.getNodeId() }, new int[] { Types.CHAR,
                             Types.SMALLINT, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
                             Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
                             Types.NUMERIC, Types.NUMERIC, Types.NUMERIC, Types.NUMERIC,
                             Types.NUMERIC, Types.NUMERIC, Types.VARCHAR, Types.NUMERIC, Types.VARCHAR,
-                            Types.VARCHAR, Types.TIMESTAMP, Types.VARCHAR, symmetricDialect.getSqlTypeForIds(), Types.VARCHAR });
+                            Types.VARCHAR, Types.VARCHAR, symmetricDialect.getSqlTypeForIds(), Types.VARCHAR });
         }
         return count;
     }

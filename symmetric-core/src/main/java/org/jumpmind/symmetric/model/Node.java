@@ -58,6 +58,8 @@ public class Node implements Serializable, Comparable<Node> {
      * sync software.
      */
     private String schemaVersion;
+    
+    private String configVersion;
 
     /**
      * Record the type of database the node hosts.
@@ -80,6 +82,8 @@ public class Node implements Serializable, Comparable<Node> {
     private int batchInErrorCount;
     
     private String deploymentType;
+    
+    private int[] symmetricVersionParts;
     
     public Node() {
     }
@@ -104,6 +108,7 @@ public class Node implements Serializable, Comparable<Node> {
         setDatabaseVersion(symmetricDialect.getVersion());
         setSyncUrl(parameterService.getSyncUrl());
         setSchemaVersion(parameterService.getString(ParameterConstants.SCHEMA_VERSION));
+        setConfigVersion(Version.version());
     }
 
     public Node(String nodeId, String syncURL, String version) {
@@ -144,6 +149,14 @@ public class Node implements Serializable, Comparable<Node> {
     public void setSchemaVersion(String version) {
         // abbreviate because we do not control the version
         this.schemaVersion = StringUtils.abbreviate(version, MAX_VERSION_SIZE);
+    }
+
+    public String getConfigVersion() {
+        return configVersion;
+    }
+
+    public void setConfigVersion(String configVersion) {
+        this.configVersion = configVersion;
     }
 
     public boolean isSyncEnabled() {
@@ -189,9 +202,21 @@ public class Node implements Serializable, Comparable<Node> {
     public String getSymmetricVersion() {
         return symmetricVersion;
     }
+    
+    public int[] getSymmetricVersionParts() {
+        if (symmetricVersionParts == null) {
+            if (StringUtils.isEmpty(symmetricVersion) || symmetricVersion.equals("development")) {
+                symmetricVersionParts = null;     
+            } else {                
+                symmetricVersionParts = Version.parseVersion(symmetricVersion);
+            }
+        }
+        return symmetricVersionParts;
+    }    
 
     public void setSymmetricVersion(String symmetricVersion) {
         this.symmetricVersion = symmetricVersion;
+        this.symmetricVersionParts = null;
     }
 
     public String toString() {
@@ -236,7 +261,7 @@ public class Node implements Serializable, Comparable<Node> {
                 return false;
             }
             try {
-                int[] currentVersion = Version.parseVersion(symmetricVersion);
+                int[] currentVersion = getSymmetricVersionParts();
                 return currentVersion != null && currentVersion.length > 0 && currentVersion[0] <= 1;
             } catch (Exception ex) {
                 log.warn(
@@ -253,7 +278,7 @@ public class Node implements Serializable, Comparable<Node> {
             if (symmetricVersion.equals("development")) {
                 return true;
             }
-            int[] currentVersion = Version.parseVersion(symmetricVersion);
+            int[] currentVersion = getSymmetricVersionParts();
             for (int i = 0; i < currentVersion.length; i++) {
                 int j = currentVersion[i];
                 if (targetVersion.length > i) {

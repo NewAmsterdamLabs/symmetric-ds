@@ -27,6 +27,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -202,7 +203,11 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
             return false;
         }
     }
-    
+
+    public boolean doesDdlTriggerExist(String catalogName, String schema, String triggerName) {
+        return false;
+    }
+
     public abstract void dropRequiredDatabaseObjects();
     
     public abstract void createRequiredDatabaseObjects();
@@ -236,9 +241,16 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
     @Override
     public String createPurgeSqlFor(Node node, TriggerRouter triggerRouter, TriggerHistory triggerHistory, 
             List<TransformTableNodeGroupLink> transforms, String deleteSql) {
-        String sql = null;                  
+        List<String> sqlStatements = createPurgeSqlForMultipleTables(node, triggerRouter, triggerHistory, transforms, deleteSql);
+        return sqlStatements.size() == 1 ? sqlStatements.get(0) : "";
+    }
+    
+    @Override
+    public List<String> createPurgeSqlForMultipleTables(Node node, TriggerRouter triggerRouter, TriggerHistory triggerHistory,
+            List<TransformTableNodeGroupLink> transforms, String deleteSql) {
+        List<String> sqlStatements = new ArrayList<String>();                  
         if (StringUtils.isEmpty(triggerRouter.getInitialLoadDeleteStmt())) {
-            List<String> tableNames = new ArrayList<String>();
+            Set<String> tableNames = new HashSet<String>();
             if (transforms != null) {
                 for (TransformTableNodeGroupLink transform : transforms) {
                     tableNames.add(transform.getFullyQualifiedTargetTableName());
@@ -247,7 +259,6 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
                 tableNames.add(triggerRouter.qualifiedTargetTableName(triggerHistory));
             }
             
-            StringBuilder statements = new StringBuilder(128);
             
             for (String tableName : tableNames) {
                 if (deleteSql == null) {
@@ -257,15 +268,12 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
                         deleteSql = parameterService.getString(ParameterConstants.INITIAL_LOAD_DELETE_FIRST_SQL);
                     } 
                 }
-                statements.append(String.format(deleteSql, tableName)).append(";");
+                sqlStatements.add(String.format(deleteSql, tableName));
             }
-            
-            statements.setLength(statements.length()-1); // Lose the last ;
-            sql = statements.toString();
         } else {
-            sql = triggerRouter.getInitialLoadDeleteStmt();
+            sqlStatements.add(triggerRouter.getInitialLoadDeleteStmt());
         }
-        return sql;
+        return sqlStatements;
     }
     
     public String createCsvDataSql(Trigger trigger, TriggerHistory triggerHistory, Channel channel,
@@ -312,6 +320,10 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
                 log.warn("Tried to remove trigger using: {} and failed because: {}", sql, e.getMessage());
             }
         }
+    }
+
+    public void removeDdlTrigger(StringBuilder sqlBuffer, String catalogName, String schemaName,
+            String triggerName) {
     }
 
     final protected void logSql(String sql, StringBuilder sqlBuffer) {
@@ -401,6 +413,38 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
             Channel channel, String tablePrefix, Table table) {
         return triggerTemplate.createPostTriggerDDL(dml, trigger, hist, channel, tablePrefix,
                 table, platform.getDefaultCatalog(), platform.getDefaultSchema());
+    }
+
+    public void createDdlTrigger(final String tablePrefix, StringBuilder sqlBuffer, String triggerName) {
+        if (parameterService.is(ParameterConstants.AUTO_SYNC_TRIGGERS)) {
+            String triggerSql = triggerTemplate.createDdlTrigger(tablePrefix, platform.getDefaultCatalog(), platform.getDefaultSchema(),
+                    triggerName);
+            log.info("Creating DDL trigger " + triggerName);
+
+            if (triggerSql != null) {
+                ISqlTransaction transaction = null;
+                try {
+                    transaction = this.platform.getSqlTemplate().startSqlTransaction(
+                            platform.getDatabaseInfo().isRequiresAutoCommitForDdl());
+    
+                    try {
+                        log.debug("Running: {}", triggerSql);
+                        logSql(triggerSql, sqlBuffer);
+                        transaction.execute(triggerSql);
+                    } catch (SqlException ex) {
+                        log.info("Failed to create DDL trigger: {}", triggerSql);
+                        throw ex;
+                    }
+    
+                    transaction.commit();
+                } catch (SqlException ex) {
+                    transaction.rollback();
+                    throw ex;
+                } finally {
+                    transaction.close();
+                }
+            }
+        }
     }
 
     public String getCreateSymmetricDDL() {
@@ -639,6 +683,7 @@ abstract public class AbstractSymmetricDialect implements ISymmetricDialect {
         return orderedColumns;
     }
 
+    @Deprecated
     public void disableSyncTriggers(ISqlTransaction transaction) {
         disableSyncTriggers(transaction, null);
     }

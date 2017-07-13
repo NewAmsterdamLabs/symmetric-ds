@@ -671,11 +671,9 @@ public abstract class AbstractJdbcDdlReader implements IDdlReader {
 
                 String catalog = (String) values.get(getResultSetCatalogName());
                 table.setCatalog(catalog);
-                metaData.setCatalog(catalog);
 
                 String schema = (String) values.get(getResultSetSchemaName());
                 table.setSchema(schema);
-                metaData.setSchemaPattern(schema);
 
                 table.setDescription((String) values.get("REMARKS"));
 
@@ -700,10 +698,10 @@ public abstract class AbstractJdbcDdlReader implements IDdlReader {
             }
             return table;
         } catch (RuntimeException ex) {
-            log.error("Failed to read table: {}", tableName);
+            log.error(String.format("Failed to read table: %s.  Error: %s", tableName, ex.getMessage()));
             throw ex;
         } catch (SQLException ex) {
-            log.error("Failed to read table: {}", tableName);
+            log.error(String.format("Failed to read table: %s.  Error: %s", tableName, ex.getMessage()));
             throw ex;
         }
     }
@@ -1243,7 +1241,7 @@ public abstract class AbstractJdbcDdlReader implements IDdlReader {
                     query.append(",");
                 }
                 query.append("t.");
-                appendIdentifier(query, columnsToCheck[idx].getName());
+                appendColumn(query, columnsToCheck[idx].getName());
             }
             query.append(" FROM ");
 
@@ -1300,7 +1298,7 @@ public abstract class AbstractJdbcDdlReader implements IDdlReader {
         }
     }
 
-    public StringBuilder appendIdentifier(StringBuilder query, String identifier) {
+    private StringBuilder appendIdentifier(StringBuilder query, String identifier) {
         if (getPlatform().getDdlBuilder().isDelimitedIdentifierModeOn()) {
             query.append(getPlatformInfo().getDelimiterToken());
         }
@@ -1309,6 +1307,13 @@ public abstract class AbstractJdbcDdlReader implements IDdlReader {
             query.append(getPlatformInfo().getDelimiterToken());
         }
         return query;
+    }
+    
+    /*
+     * Allow subclasses to override column delimiters
+     */
+    protected StringBuilder appendColumn(StringBuilder query, String identifier) {
+        return appendIdentifier(query, identifier);
     }
 
     /*

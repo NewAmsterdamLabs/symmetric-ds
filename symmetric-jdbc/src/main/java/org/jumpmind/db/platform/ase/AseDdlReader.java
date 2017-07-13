@@ -331,4 +331,19 @@ public class AseDdlReader extends AbstractJdbcDdlReader {
 		
 		return triggers;
 	}
+
+    @Override
+    protected String getTableNamePattern(String tableName) {
+        tableName = tableName.replace("_", "\\_");
+        tableName = tableName.replace("%", "\\%");
+        return tableName;
+    }
+    
+    @Override
+    protected StringBuilder appendColumn(StringBuilder query, String identifier) {
+        query.append("\"");
+        query.append(identifier);
+        query.append("\"");
+        return query;
+    }
 }
