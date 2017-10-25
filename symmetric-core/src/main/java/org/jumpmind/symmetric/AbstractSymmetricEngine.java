@@ -26,6 +26,7 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.sql.SQLException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -328,6 +329,7 @@ abstract public class AbstractSymmetricEngine implements ISymmetricEngine {
         this.statisticService = new StatisticService(parameterService, symmetricDialect);
         this.statisticManager = new StatisticManager(parameterService, nodeService,
                 configurationService, statisticService, clusterService);
+        this.statisticManager = createStatisticManager();
         this.concurrentConnectionManager = new ConcurrentConnectionManager(parameterService,
                 statisticManager);
         this.purgeService = new PurgeService(parameterService, symmetricDialect, clusterService,
@@ -398,6 +400,8 @@ abstract public class AbstractSymmetricEngine implements ISymmetricEngine {
 
     abstract protected IStagingManager createStagingManager();
 
+    abstract protected IStatisticManager createStatisticManager();
+
     abstract protected ISymmetricDialect createSymmetricDialect();
 
     abstract protected IExtensionService createExtensionService();
@@ -450,7 +454,17 @@ abstract public class AbstractSymmetricEngine implements ISymmetricEngine {
         } else {
             log.info("SymmetricDS is not configured to auto-create the database");
         }
-        configurationService.initDefaultChannels();
+        try {
+            configurationService.initDefaultChannels();
+        } catch (SqlException e) {
+            if (e.getCause() instanceof SQLException) {
+                SQLException se = (SQLException) e.getCause();
+                if (se.getErrorCode() == -7008 && se.getSQLState().equals("55019")) {
+                    log.error("Please enable journaling on SYM objects.  For instructions, see the appendix in the User Guide on DB2 for i.");
+                }
+            }
+            throw e;
+        }
         clusterService.init();
         sequenceService.init();
         autoConfigRegistrationServer();
@@ -554,12 +568,13 @@ abstract public class AbstractSymmetricEngine implements ISymmetricEngine {
                     }
 
                     if (fileUrl != null) {
+                        log.info("Executing {} '{}' ({})", ParameterConstants.AUTO_CONFIGURE_REG_SVR_SQL_SCRIPT, sqlScript, fileUrl);
                         new SqlScript(fileUrl, symmetricDialect.getPlatform().getSqlTemplate(),
                                 true, SqlScriptReader.QUERY_ENDS, getSymmetricDialect().getPlatform()
                                         .getSqlScriptReplacementTokens()).execute();
                         loaded = true;
                     } else {
-                        log.info("Could not find the sql script: {} to execute.  We would have run it if we had found it");
+                        log.warn("Could not find the {}: '{}' to execute.  We would have run it if we had found it", ParameterConstants.AUTO_CONFIGURE_REG_SVR_SQL_SCRIPT, sqlScript);
                     }
                 }
             }

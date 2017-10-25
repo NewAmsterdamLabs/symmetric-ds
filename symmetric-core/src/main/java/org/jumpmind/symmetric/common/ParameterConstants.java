@@ -150,6 +150,8 @@ final public class ParameterConstants {
     public final static String CREATE_TABLE_WITHOUT_FOREIGN_KEYS = "create.table.without.foreign.keys";
     public final static String CREATE_TABLE_WITHOUT_PK_IF_SOURCE_WITHOUT_PK = "create.table.without.pk.if.source.without.pk";
     
+    public final static String CREATE_TABLE_NOT_NULL_COLUMNS = "create.table.not.null.columns.supported";
+    
     public final static String STREAM_TO_FILE_ENABLED = "stream.to.file.enabled";
     public final static String STREAM_TO_FILE_THRESHOLD = "stream.to.file.threshold.bytes";
     public final static String STREAM_TO_FILE_TIME_TO_LIVE_MS = "stream.to.file.ttl.ms";
@@ -208,6 +210,10 @@ final public class ParameterConstants {
     public final static String DBDIALECT_ORACLE_USE_TRANSACTION_VIEW = "oracle.use.transaction.view";
     public final static String DBDIALECT_ORACLE_TEMPLATE_NUMBER_SPEC = "oracle.template.precision";
     public final static String DBDIALECT_ORACLE_USE_HINTS = "oracle.use.hints";
+
+    public final static String DBDIALECT_TIBERO_USE_TRANSACTION_VIEW = "tibero.use.transaction.view";
+    public final static String DBDIALECT_TIBERO_TEMPLATE_NUMBER_SPEC = "tibero.template.precision";
+    public final static String DBDIALECT_TIBERO_USE_HINTS = "tibero.use.hints";
 
     public final static String DBDIALECT_ORACLE_TRANSACTION_VIEW_CLOCK_SYNC_THRESHOLD_MS = "oracle.transaction.view.clock.sync.threshold.ms";
 
@@ -386,6 +392,10 @@ final public class ParameterConstants {
     public final static String FIREBIRD_EXTRACT_VARCHAR_ROW_OLD_PK_DATA = "firebird.extract.varchar.row.old.pk.data";
     
     public final static String LOG_CONFLICT_RESOLUTION = "log.conflict.resolution";
+    
+    public final static String STATISTIC_MANAGER_CLASS = "statistic.manager.class";
+
+    public final static String DB2_CAPTURE_TRANSACTION_ID = "db2.capture.transaction.id";
     
     public static Map<String, ParameterMetaData> getParameterMetaData() {
         return parameterMetaData;

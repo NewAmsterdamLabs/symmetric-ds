@@ -34,6 +34,7 @@ import org.jumpmind.db.DbTestUtils;
 import org.jumpmind.db.model.Table;
 import org.jumpmind.db.platform.AbstractDatabasePlatform;
 import org.jumpmind.db.platform.ase.AseDatabasePlatform;
+import org.jumpmind.db.platform.db2.Db2As400DatabasePlatform;
 import org.jumpmind.db.platform.informix.InformixDatabasePlatform;
 import org.jumpmind.db.platform.mssql.MsSql2000DatabasePlatform;
 import org.jumpmind.db.platform.mssql.MsSql2005DatabasePlatform;
@@ -42,6 +43,7 @@ import org.jumpmind.db.platform.mysql.MySqlDatabasePlatform;
 import org.jumpmind.db.platform.oracle.OracleDatabasePlatform;
 import org.jumpmind.db.platform.postgresql.PostgreSqlDatabasePlatform;
 import org.jumpmind.db.platform.sqlanywhere.SqlAnywhereDatabasePlatform;
+import org.jumpmind.db.platform.tibero.TiberoDatabasePlatform;
 import org.jumpmind.symmetric.io.AbstractWriterTest;
 import org.jumpmind.symmetric.io.data.CsvData;
 import org.jumpmind.symmetric.io.data.DataEventType;
@@ -585,6 +587,9 @@ public class DatabaseWriterTest extends AbstractWriterTest {
 
     @Test
     public void testBenchmark() throws Exception {
+        if (platform instanceof Db2As400DatabasePlatform) {
+            return;
+        }
         Table table = buildSourceTable(TEST_TABLE, TEST_KEYS, TEST_COLUMNS);
         int startId = Integer.parseInt(getId()) + 1;
         List<CsvData> datas = new ArrayList<CsvData>();
@@ -623,6 +628,7 @@ public class DatabaseWriterTest extends AbstractWriterTest {
         
         if (values[5] != null
                 && (!(platform instanceof OracleDatabasePlatform
+                        || platform instanceof TiberoDatabasePlatform
                         || platform instanceof MsSql2000DatabasePlatform 
                         || platform instanceof MsSql2005DatabasePlatform 
                         || platform instanceof MsSql2008DatabasePlatform 
@@ -633,7 +639,8 @@ public class DatabaseWriterTest extends AbstractWriterTest {
         if (values[10] != null) {
             values[10] = values[10].replace(',', '.');
         }
-        if (values[10] != null && !(platform instanceof OracleDatabasePlatform)) {
+        if (values[10] != null && !(platform instanceof OracleDatabasePlatform) 
+                && !(platform instanceof TiberoDatabasePlatform)) {
             int scale = 17;
             if (platform instanceof MySqlDatabasePlatform) {
                 scale = 16;

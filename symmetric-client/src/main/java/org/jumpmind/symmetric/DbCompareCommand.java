@@ -22,23 +22,26 @@ package org.jumpmind.symmetric;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.ListIterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.apache.commons.cli.PosixParser;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.jumpmind.symmetric.io.DbCompare;
 import org.jumpmind.symmetric.io.DbCompareConfig;
 import org.jumpmind.symmetric.io.DbCompareReport;
+import org.jumpmind.symmetric.util.SymmetricUtils;
 
 public class DbCompareCommand extends AbstractCommandLauncher {
+
+    private Properties configProperties;
 
     public DbCompareCommand() {
         super("dbcompare", "[tablename...]", "DbCompare.Option.");
@@ -56,10 +59,12 @@ public class DbCompareCommand extends AbstractCommandLauncher {
 
     @Override
     protected boolean executeWithOptions(CommandLine line) throws Exception {
+        
+        DbCompareConfig config = new DbCompareConfig();
 
         String source = line.getOptionValue('s');
         if (source == null) {
-            source = line.getOptionValue(OPTION_SOURCE);
+            source = getOptionValue(OPTION_SOURCE, "source", line, config);
         }
         if (StringUtils.isEmpty(source)) {
             throw new ParseException(String.format("-source properties file is required."));   
@@ -72,7 +77,7 @@ public class DbCompareCommand extends AbstractCommandLauncher {
 
         String target = line.getOptionValue('t');
         if (target == null) {
-            target = line.getOptionValue(OPTION_TARGET);
+            target = getOptionValue(OPTION_TARGET, "target", line, config);
         }
         if (StringUtils.isEmpty(target)) {
             throw new ParseException(String.format("-target properties file is required."));   
@@ -83,25 +88,30 @@ public class DbCompareCommand extends AbstractCommandLauncher {
             throw new SymmetricException("Target properties file '" + targetProperties + "' does not exist."); 
         }
 
-        DbCompareConfig config = new DbCompareConfig();
-
-        if (line.hasOption(OPTION_OUTPUT_SQL)) {
-            config.setSqlDiffFileName(line.getOptionValue(OPTION_OUTPUT_SQL));
+        config.setOutputSql(getOptionValue(OPTION_OUTPUT_SQL, "outputSql", line, config));
+        config.setUseSymmetricConfig(Boolean.valueOf(getOptionValue(OPTION_USE_SYM_CONFIG, "useSymmetricConfig", line, config)));
+        String excludedTableNames = getOptionValue(OPTION_EXCLUDE, "excludedTableNames", line, config);
+        if (excludedTableNames != null) {            
+            config.setExcludedTableNames(Arrays.asList(excludedTableNames.split(",")));
         }
-        if (line.hasOption(OPTION_USE_SYM_CONFIG)) {
-            config.setUseSymmetricConfig(Boolean.valueOf(line.getOptionValue(OPTION_USE_SYM_CONFIG)));
-        }
-        if (line.hasOption(OPTION_EXCLUDE)) {
-            config.setExcludedTableNames(Arrays.asList(line.getOptionValue(OPTION_EXCLUDE).split(",")));
+        String targetTables = getOptionValue(OPTION_TARGET_TABLES, "targetTableNames", line, config);
+        if (targetTables != null) {            
+            config.setTargetTableNames(Arrays.asList(targetTables.split(",")));
         }
 
         config.setWhereClauses(parseWhereClauses(line));
+        config.setTablesToExcludedColumns(parseExcludedColumns(line));
 
-        if (!CollectionUtils.isEmpty(line.getArgList())) {
-            config.setIncludedTableNames(Arrays.asList(line.getArgList().get(0).toString().split(",")));
+        String sourceTables = getOptionValue(OPTION_SOURCE_TABLES, "sourceTableNames", line, config);
+        if (sourceTables == null && !CollectionUtils.isEmpty(line.getArgList())) {
+            sourceTables = line.getArgList().get(0).toString(); 
+        }
+        
+        if (sourceTables != null) {            
+            config.setSourceTableNames(Arrays.asList(sourceTables.split(",")));
         }
 
-        String numericScaleArg = line.getOptionValue(OPTION_NUMERIC_SCALE);
+        String numericScaleArg = getOptionValue(OPTION_NUMERIC_SCALE, "numericScale", line, config);
         if (!StringUtils.isEmpty(numericScaleArg)) {            
             try {
                 config.setNumericScale(Integer.parseInt(numericScaleArg.trim()));
@@ -118,6 +128,26 @@ public class DbCompareCommand extends AbstractCommandLauncher {
 
         return false;
     }
+    
+    protected String getOptionValue(String optionName, String internalName, CommandLine line, DbCompareConfig config) {
+        String optionValue = line.hasOption(optionName) ? line.getOptionValue(optionName) : null;
+        if (optionValue == null) {
+            Properties props = getConfigProperties(line);
+            optionValue = props.getProperty(optionName);
+            if (optionValue == null) {
+                String optionNameUnderScore = optionName.replace('-', '_');
+                optionValue = props.getProperty(optionNameUnderScore);
+                if (optionValue != null) {
+                    config.setConfigSource(internalName, line.getOptionValue(OPTION_CONFIG_PROPERTIES));
+                }
+            } else {
+                config.setConfigSource(internalName, line.getOptionValue(OPTION_CONFIG_PROPERTIES));
+            }
+        } else {
+            config.setConfigSource(internalName, "command-line");
+        }
+        return optionValue;
+    }
 
     public static void main(String[] args) throws Exception {
         new DbCompareCommand().execute(args);
@@ -132,12 +162,16 @@ public class DbCompareCommand extends AbstractCommandLauncher {
 
     private static final String OPTION_EXCLUDE = "exclude";
 
+    private static final String OPTION_SOURCE_TABLES = "source-tables";
+    
+    private static final String OPTION_TARGET_TABLES = "target-tables";
+
     private static final String OPTION_USE_SYM_CONFIG = "use-sym-config";
 
     private static final String OPTION_OUTPUT_SQL = "output-sql";
 
     private static final String OPTION_NUMERIC_SCALE = "numeric-scale";
-    
+
     private static final String OPTION_CONFIG_PROPERTIES = "config";
 
     @Override
@@ -153,6 +187,7 @@ public class DbCompareCommand extends AbstractCommandLauncher {
         addOption(options, "s", OPTION_SOURCE, true);
         addOption(options, "t", OPTION_TARGET, true);
         addOption(options, null, OPTION_EXCLUDE, true);
+        addOption(options, null, OPTION_TARGET_TABLES, true);
         addOption(options, null, OPTION_USE_SYM_CONFIG, true);
         addOption(options, null, OPTION_OUTPUT_SQL, true);
         addOption(options, null, OPTION_NUMERIC_SCALE, true);
@@ -160,17 +195,9 @@ public class DbCompareCommand extends AbstractCommandLauncher {
     }
 
     protected Map<String, String> parseWhereClauses(CommandLine line) {
-        String configPropertiesFile = line.getOptionValue(OPTION_CONFIG_PROPERTIES);
+        Properties props = getConfigProperties(line);
         Map<String, String> whereClauses = new HashMap<String, String>();
-        if (!StringUtils.isEmpty(configPropertiesFile)) {
-            Properties props = new Properties();
-            try {
-                props.load(new FileInputStream(configPropertiesFile));
-            } catch (Exception ex) {
-                String qualifiedFileName = new File(configPropertiesFile).getAbsolutePath();
-                throw new SymmetricException("Could not load config properties file '" + configPropertiesFile + 
-                        "' at '" + qualifiedFileName + "' ", ex);
-            } 
+        if (props != null) {
             for (Object key : props.keySet()) {
                 String arg = key.toString();
                 if (arg.endsWith(DbCompareConfig.WHERE_CLAUSE)) {
@@ -178,8 +205,52 @@ public class DbCompareCommand extends AbstractCommandLauncher {
                 }
             }
         }
-        
+
         return whereClauses;
+    }
+
+    protected Map<String, List<String>> parseExcludedColumns(CommandLine line) {
+        Properties props = getConfigProperties(line);
+        Map<String, List<String>> tablesToExcludedColumns = new HashMap<String, List<String>>();
+        if (props != null) {
+            for (Object key : props.keySet()) {
+                String arg = key.toString();
+                if (arg.endsWith(DbCompareConfig.EXCLUDED_COLUMN)) {
+                    List<String> excludedColumns =  tablesToExcludedColumns.get(key);
+                    if (excludedColumns == null) {
+                        excludedColumns = new ArrayList<String>();
+                        tablesToExcludedColumns.put(key.toString(), excludedColumns);
+                    }
+                    excludedColumns.addAll(Arrays.asList(props.getProperty(arg).split(",")));
+                }
+            }
+        }
+
+        return tablesToExcludedColumns;
+
+    }
+
+    protected Properties getConfigProperties(CommandLine line) {
+        if (configProperties != null) {
+            return configProperties;
+        } else {            
+            String configPropertiesFile = line.getOptionValue(OPTION_CONFIG_PROPERTIES);
+            if (!StringUtils.isEmpty(configPropertiesFile)) {
+                Properties props = new Properties();
+                try {
+                    props.load(new FileInputStream(configPropertiesFile));
+                    SymmetricUtils.replaceSystemAndEnvironmentVariables(props);
+                    configProperties = props;
+                    return configProperties;
+                } catch (Exception ex) {
+                    String qualifiedFileName = new File(configPropertiesFile).getAbsolutePath();
+                    throw new SymmetricException("Could not load config properties file '" + configPropertiesFile + 
+                            "' at '" + qualifiedFileName + "' ", ex);
+                }    
+            }
+        }
+
+        return null;
     }
 
     static String stripLeadingHyphens(String str) {

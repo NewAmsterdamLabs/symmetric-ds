@@ -167,6 +167,8 @@ public class DataLoaderService extends AbstractService implements IDataLoaderSer
 
     private Date lastUpdateTime;
     
+    private CustomizableThreadFactory threadFactory;
+    
     public DataLoaderService(ISymmetricEngine engine) {
         super(engine.getParameterService(), engine.getSymmetricDialect());
         this.incomingBatchService = engine.getIncomingBatchService();
@@ -548,7 +550,10 @@ public class DataLoaderService extends AbstractService implements IDataLoaderSer
             String targetNodeId = nodeService.findIdentityNodeId();
             if (parameterService.is(ParameterConstants.STREAM_TO_FILE_ENABLED)) {
                 processInfo.setStatus(ProcessInfo.Status.TRANSFERRING);
-                ExecutorService executor = Executors.newFixedThreadPool(1, new CustomizableThreadFactory(String.format("dataloader-%s-%s", sourceNode.getNodeGroupId(), sourceNode.getNodeId())));
+                if (threadFactory == null) {
+                    threadFactory = new CustomizableThreadFactory(parameterService.getEngineName().toLowerCase() + "-dataloader");
+                }
+                ExecutorService executor = Executors.newFixedThreadPool(1, threadFactory);
                 LoadIntoDatabaseOnArrivalListener loadListener = new LoadIntoDatabaseOnArrivalListener(processInfo,
                         sourceNode.getNodeId(), listener, executor);
                 new SimpleStagingDataWriter(transport.openReader(), stagingManager, Constants.STAGING_CATEGORY_INCOMING, 
@@ -566,8 +571,13 @@ public class DataLoaderService extends AbstractService implements IDataLoaderSer
                         outWriter.flush();
                     }
                 } else {
-                    executor.awaitTermination(12, TimeUnit.HOURS);
+                    long hours = 1;
+                    while (!executor.awaitTermination(1, TimeUnit.HOURS)) {
+                        log.info(String.format("Executor has been awaiting loader termination for %d hour(s).", hours));
+                        hours++;
+                    }            
                 }
+                
                 loadListener.isDone();
             } else {
                 DataProcessor processor = new DataProcessor(new ProtocolDataReader(BatchType.LOAD,
@@ -773,7 +783,7 @@ public class DataLoaderService extends AbstractService implements IDataLoaderSer
                         setting.getLastUpdateBy(), setting.getConflictId() }, new int[] {
                         Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR,
                         Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.INTEGER,
-                        Types.INTEGER, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR }) == 0) {
+                        Types.INTEGER, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR }) <= 0) {
             sqlTemplate.update(
                     getSql("insertConflictSettingsSql"),
                     new Object[] { setting.getNodeGroupLink().getSourceNodeGroupId(),
@@ -1158,7 +1168,14 @@ public class DataLoaderService extends AbstractService implements IDataLoaderSer
                         this.currentBatch.setSqlState(ErrorConstants.CONFLICT_STATE);
                         this.currentBatch.setSqlCode(ErrorConstants.CONFLICT_CODE);
                     } else if (se != null) {
-                        this.currentBatch.setSqlState(se.getSQLState());
+                        String sqlState = se.getSQLState();
+                        if (sqlState != null && sqlState.length() > 10) {
+                            sqlState = sqlState.replace("JDBC-", "");
+                            if (sqlState.length() > 10) {
+                                sqlState = sqlState.substring(0, 10);
+                            }
+                        }
+                        this.currentBatch.setSqlState(sqlState);
                         this.currentBatch.setSqlCode(se.getErrorCode());
                         this.currentBatch.setSqlMessage(se.getMessage());
                         if (sqlTemplate.isForeignKeyViolation(se)) {

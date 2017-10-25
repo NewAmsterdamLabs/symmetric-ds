@@ -35,6 +35,7 @@ import java.io.OutputStream;
 import java.io.StringReader;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
@@ -47,7 +48,7 @@ public class StagedResource implements IStagedResource {
 
     static final Logger log = LoggerFactory.getLogger(StagedResource.class);
     
-    private int references = 0;
+    private AtomicInteger references = new AtomicInteger(0);
 
     private File directory;
     
@@ -91,26 +92,30 @@ public class StagedResource implements IStagedResource {
     protected static String toPath(File directory, File file) {
         String path = file.getAbsolutePath();
         path = path.replaceAll("\\\\", "/");
-        path = path.substring(directory.getAbsolutePath().length(), file
-                .getAbsolutePath().length());
-        path = path.substring(1, path.lastIndexOf("."));
-        return path;
+        path = path.substring(directory.getAbsolutePath().length(), file.getAbsolutePath().length());
+        int extensionIndex = path.lastIndexOf(".");
+        if (extensionIndex > 0) {
+            path = path.substring(1, extensionIndex);
+            return path;
+        } else {
+            throw new IllegalStateException("Expected an extension of .done or .create at the end of the path and did not find it: " + path);
+        }
     }
     
     @Override
     public void reference() {
-        references++;
+        references.incrementAndGet();
         log.debug("Increased reference to {} for {} by {}", references, path, Thread.currentThread().getName());
     }
     
     @Override
     public void dereference() {
-        references--;
+        references.decrementAndGet();
         log.debug("Decreased reference to {} for {} by {}", references, path, Thread.currentThread().getName());
     }
     
     public boolean isInUse() {
-        return references > 0 || (readers != null && readers.size() > 0) || writer != null || 
+        return references.get() > 0 || (readers != null && readers.size() > 0) || writer != null || 
                 (inputStreams != null && inputStreams.size() > 0) ||
                 outputStream != null;
     }

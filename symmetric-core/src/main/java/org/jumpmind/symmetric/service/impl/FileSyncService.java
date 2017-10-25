@@ -47,6 +47,7 @@ import org.jumpmind.symmetric.AbstractSymmetricEngine;
 import org.jumpmind.symmetric.ISymmetricEngine;
 import org.jumpmind.symmetric.SymmetricException;
 import org.jumpmind.symmetric.common.Constants;
+import org.jumpmind.symmetric.common.ContextConstants;
 import org.jumpmind.symmetric.common.ParameterConstants;
 import org.jumpmind.symmetric.common.TableConstants;
 import org.jumpmind.symmetric.file.DirectorySnapshot;
@@ -69,7 +70,6 @@ import org.jumpmind.symmetric.model.FileSnapshot.LastEventType;
 import org.jumpmind.symmetric.model.FileTrigger;
 import org.jumpmind.symmetric.model.FileTriggerRouter;
 import org.jumpmind.symmetric.model.IncomingBatch;
-import org.jumpmind.symmetric.model.Lock;
 import org.jumpmind.symmetric.model.Node;
 import org.jumpmind.symmetric.model.NodeCommunication;
 import org.jumpmind.symmetric.model.NodeCommunication.CommunicationType;
@@ -178,9 +178,15 @@ INodeCommunicationExecutor {
     }
 
     protected void trackChangesFastScan(ProcessInfo processInfo, boolean useCrc) {
+        long ctxTime = engine.getContextService().getLong(ContextConstants.FILE_SYNC_FAST_SCAN_TRACK_TIME);
+        Date ctxDate = new Date(ctxTime);
+        if (ctxTime == 0) {
+            ctxDate = null;
+        }
+        Date currentDate = new Date();
+
         boolean isLocked = engine.getClusterService().lock(ClusterConstants.FILE_SYNC_SCAN);
-        Lock lock = engine.getClusterService().findLocks().get(ClusterConstants.FILE_SYNC_SCAN);
-        log.debug("File tracker range of " + lock.getLastLockTime() + " to " + lock.getLockTime() + ", isLocked=" + isLocked);
+        log.debug("File tracker range of " + ctxDate + " to " + currentDate + ", isLocked=" + isLocked);
         int maxRowsBeforeCommit = engine.getParameterService().getInt(ParameterConstants.DATA_LOADER_MAX_ROWS_BEFORE_COMMIT);
 
         try {
@@ -189,8 +195,8 @@ INodeCommunicationExecutor {
                 if (fileTriggerRouter.isEnabled()) {        
                     FileAlterationObserver observer = new FileAlterationObserver(fileTriggerRouter.getFileTrigger().getBaseDir(),
                             fileTriggerRouter.getFileTrigger().createIOFileFilter());
-                    FileTriggerFileModifiedListener listener = new FileTriggerFileModifiedListener(fileTriggerRouter, lock.getLastLockTime(),
-                            lock.getLockTime(), processInfo, useCrc, new FileModifiedCallback(maxRowsBeforeCommit) {
+                    FileTriggerFileModifiedListener listener = new FileTriggerFileModifiedListener(fileTriggerRouter, ctxDate,
+                            currentDate, processInfo, useCrc, new FileModifiedCallback(maxRowsBeforeCommit) {
                         public void commit(DirectorySnapshot dirSnapshot) {
                             saveDirectorySnapshot(fileTriggerRouter, dirSnapshot);
                         }
@@ -201,6 +207,7 @@ INodeCommunicationExecutor {
                     }, engine);
                     observer.addListener(listener);
                     observer.checkAndNotify();
+                    engine.getContextService().save(ContextConstants.FILE_SYNC_FAST_SCAN_TRACK_TIME, String.valueOf(currentDate.getTime()));
                 }
             }
             engine.getClusterService().unlock(ClusterConstants.FILE_SYNC_SCAN);
@@ -270,7 +277,7 @@ INodeCommunicationExecutor {
 
     public void saveFileTrigger(FileTrigger fileTrigger) {
         fileTrigger.setLastUpdateTime(new Date());
-        if (0 == sqlTemplate.update(
+        if (0 >= sqlTemplate.update(
                 getSql("updateFileTriggerSql"),
                 new Object[] { fileTrigger.getBaseDir(), fileTrigger.isRecurse() ? 1 : 0,
                         fileTrigger.getIncludesFiles(), fileTrigger.getExcludesFiles(),
@@ -312,7 +319,7 @@ INodeCommunicationExecutor {
 
     public void saveFileTriggerRouter(FileTriggerRouter fileTriggerRouter) {
         fileTriggerRouter.setLastUpdateTime(new Date());
-        if (0 == sqlTemplate.update(
+        if (0 >= sqlTemplate.update(
                 getSql("updateFileTriggerRouterSql"),
                 new Object[] { fileTriggerRouter.isEnabled() ? 1 : 0,
                         fileTriggerRouter.isInitialLoadEnabled() ? 1 : 0,
@@ -404,7 +411,7 @@ INodeCommunicationExecutor {
 
     public void save(ISqlTransaction sqlTransaction, FileSnapshot snapshot) {
         snapshot.setLastUpdateTime(new Date());
-        if (0 == sqlTransaction.prepareAndExecute(
+        if (0 >= sqlTransaction.prepareAndExecute(
                 getSql("updateFileSnapshotSql"),
                 new Object[] { snapshot.getLastEventType().getCode(), snapshot.getCrc32Checksum(),
                         snapshot.getFileSize(), snapshot.getFileModifiedTime(),
@@ -801,7 +808,7 @@ INodeCommunicationExecutor {
                     ((FileOutgoingTransport) transport).setProcessedBatches(batches);
                 }
                 List<BatchAck> batchAcks = readAcks(batches, transport,
-                        transportManager, engine.getAcknowledgeService());
+                        transportManager, engine.getAcknowledgeService(), null);
                 status.updateOutgoingStatus(batches, batchAcks);
             }
             if (!status.failed() && batches.size() > 0) {
@@ -933,15 +940,17 @@ INodeCommunicationExecutor {
                             if (target != null) {
                                 ex = target;
                             }
-                        } else if (ex instanceof EvalError) {
-                            log.error("Failed to evalulate the script:\n{}", script);
                         }
+                        
+                        String nodeIdBatchId = sourceNodeId + "-" + batchId;
 
-                        if (ex instanceof FileConflictException) {
+                        if (ex instanceof EvalError) {
+                            log.error("Failed to evalulate the script as part of file sync batch " + nodeIdBatchId + "\n" + script + "\n", ex);
+                        } else if (ex instanceof FileConflictException) {
                             log.error(ex.getMessage() + ".  Failed to process file sync batch "
-                                    + batchId);
+                                    + nodeIdBatchId);
                         } else {
-                            log.error("Failed to process file sync batch " + batchId, ex);
+                            log.error("Failed to process file sync for  batch " + nodeIdBatchId, ex);
                         }
 
                         incomingBatch.setErrorFlag(true);
@@ -989,7 +998,7 @@ INodeCommunicationExecutor {
             long lastUpdateTime = file.lastModified();
             int updateCount = sqlTemplate.update(getSql("updateFileIncoming"), nodeId,
                     lastUpdateTime, eventType, dirName, fileName);
-            if (updateCount == 0) {
+            if (updateCount <= 0) {
                 sqlTemplate.update(getSql("insertFileIncoming"), nodeId, lastUpdateTime, eventType,
                         dirName, fileName);
             }

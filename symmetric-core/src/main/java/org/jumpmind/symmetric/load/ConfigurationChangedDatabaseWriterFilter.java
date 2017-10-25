@@ -90,6 +90,9 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
     
     final String CTX_KEY_REINITIALIZED = "Reinitialized."
             + ConfigurationChangedDatabaseWriterFilter.class.getSimpleName() + hashCode();
+    
+    final String CTX_KEY_FILE_SYNC_ENABLED = "FileSyncEnabled."
+            + ConfigurationChangedDatabaseWriterFilter.class.getSimpleName() + hashCode();
 
     private ISymmetricEngine engine;
 
@@ -127,6 +130,7 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
         recordConflictFlushNeeded(context, table);
         recordNodeSecurityFlushNeeded(context, table);
         recordNodeFlushNeeded(context, table, data);
+        recordFileSyncEnabled(context, table, data);
     }
     
     private void recordGroupletFlushNeeded(DataContext context, Table table) {
@@ -218,6 +222,12 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
             }
         }
     }
+    
+    private void recordFileSyncEnabled(DataContext context, Table table, CsvData data) {
+        if (isFileSyncEnabled(table, data)) {
+            context.put(CTX_KEY_FILE_SYNC_ENABLED, true);
+        }
+    }
 
     private boolean isSyncTriggersNeeded(DataContext context, Table table) {
         boolean autoSync = engine.getParameterService().is(ParameterConstants.AUTO_SYNC_TRIGGERS_AFTER_CONFIG_LOADED) || 
@@ -256,6 +266,13 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
         return matchesTable(table, TableConstants.SYM_PARAMETER)
                 && data.getCsvData(CsvData.ROW_DATA) != null
                 && data.getCsvData(CsvData.ROW_DATA).contains("job.");
+    }
+    
+    private boolean isFileSyncEnabled(Table table, CsvData data) {
+        return matchesTable(table, TableConstants.SYM_PARAMETER)
+                && data.getCsvData(CsvData.ROW_DATA) != null
+                && data.getCsvData(CsvData.ROW_DATA).contains(ParameterConstants.FILE_SYNC_ENABLE)
+                && data.getCsvData(CsvData.ROW_DATA).contains("true");
     }
 
     private boolean isTransformFlushNeeded(Table table) {
@@ -319,6 +336,15 @@ public class ConfigurationChangedDatabaseWriterFilter extends DatabaseWriterFilt
             context.remove(CTX_KEY_RESYNC_TABLE_NEEDED);
         }    
         
+        if (context.get(CTX_KEY_FILE_SYNC_ENABLED) != null
+                && parameterService.is(ParameterConstants.AUTO_SYNC_TRIGGERS)) {
+            log.info("About to syncTriggers for file snapshot because the file sync parameter has changed");
+            engine.clearCaches();
+            Table fileSnapshotTable = engine.getDatabasePlatform()
+                    .getTableFromCache(TableConstants.getTableName(engine.getTablePrefix(), TableConstants.SYM_FILE_SNAPSHOT), false);
+            engine.getTriggerRouterService().syncTriggers(fileSnapshotTable, false);
+            context.remove(CTX_KEY_FILE_SYNC_ENABLED);
+        }
     }
 
     @Override

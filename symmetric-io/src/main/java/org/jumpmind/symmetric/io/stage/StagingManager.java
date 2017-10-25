@@ -21,6 +21,7 @@
 package org.jumpmind.symmetric.io.stage;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
@@ -37,6 +38,8 @@ import org.slf4j.LoggerFactory;
 
 
 public class StagingManager implements IStagingManager {
+    
+    private static final String LOCK_EXTENSION = ".lock";
 
     protected static final Logger log = LoggerFactory.getLogger(StagingManager.class);
 
@@ -45,13 +48,16 @@ public class StagingManager implements IStagingManager {
     protected Set<String> resourcePaths;
     
     protected Map<String, IStagedResource> inUse;
+    
+    boolean clusterEnabled;
 
-    public StagingManager(String directory) {
+    public StagingManager(String directory, boolean clusterEnabled) {
         log.info("The staging directory was initialized at the following location: " + directory);
         this.directory = new File(directory);
         this.directory.mkdirs();
         this.resourcePaths = Collections.synchronizedSet(new TreeSet<String>());
         this.inUse = new ConcurrentHashMap<String, IStagedResource>();
+        this.clusterEnabled = clusterEnabled;
         refreshResourceList();
     }
     
@@ -63,11 +69,11 @@ public class StagingManager implements IStagingManager {
 
     private void refreshResourceList() {
         Collection<File> files = FileUtils.listFiles(this.directory,
-                new String[] { State.CREATE.getExtensionName(), State.DONE.getExtensionName(), State.DONE.getExtensionName() }, true);
+                new String[] { State.CREATE.getExtensionName(), State.DONE.getExtensionName() }, true);
         for (File file : files) {
             try {
                 String path = StagedResource.toPath(directory, file);
-                if (!resourcePaths.contains(path)) {
+                if (path != null && !resourcePaths.contains(path)) {
                     resourcePaths.add(path);
                 }
             } catch (IllegalStateException ex) {
@@ -176,8 +182,20 @@ public class StagingManager implements IStagingManager {
     
     public IStagedResource find(String path) {
         IStagedResource resource = inUse.get(path);
-        if (resource == null && resourcePaths.contains(path)) {
-            resource = new StagedResource(directory, path, this);
+        if (resource == null) {
+            boolean foundResourcePath = resourcePaths.contains(path);
+            if (!foundResourcePath && clusterEnabled) {
+                synchronized (this) {
+                    StagedResource staged = new StagedResource(directory, path, this);
+                    if (staged.exists() && staged.getState() == State.DONE) {
+                        resourcePaths.add(path);
+                        resource = staged;
+                        foundResourcePath = true;
+                    }
+                }
+            } else if (foundResourcePath) {
+                resource = new StagedResource(directory, path, this);         
+            }
         }
         return resource;
     }
@@ -185,5 +203,46 @@ public class StagingManager implements IStagingManager {
     public IStagedResource find(Object... path) {
         return find(buildFilePath(path));
     }
+    
+    @Override
+    public StagingFileLock acquireFileLock(String serverInfo, Object... path) {
+        String lockFilePath = String.format("%s/%s%s", directory, buildFilePath(path), LOCK_EXTENSION);
+        log.debug("About to acquire lock at {}", lockFilePath);
+        
+        StagingFileLock stagingFileLock = new StagingFileLock();
+        
+        File lockFile = new File(lockFilePath);
+        
+        boolean acquired = false;
+        try {
+            acquired = lockFile.createNewFile();
+            if (acquired) {
+                FileUtils.write(lockFile, serverInfo);
+            }
+        } catch (IOException ex) { // Hitting this when file already exists.
+            log.warn("Failed to create lock file  (" + lockFilePath + ")", ex);
+        }
+        
+        stagingFileLock.setAcquired(acquired);
+        stagingFileLock.setLockFile(lockFile);
+        
+        if (!acquired) {
+            if (lockFile.exists()) {
+                try {                    
+                    String lockFileContents = FileUtils.readFileToString(lockFile, "UTF8");
+                    stagingFileLock.setLockFailureMessage("Lock file exists: " + lockFileContents);
+                } catch (Exception ex) {
+                    stagingFileLock.setLockFailureMessage("Lock file exists but could not read contents: " + ex.getMessage());
+                    if (log.isDebugEnabled()) {                        
+                        log.debug("Failed to read lock file contents (" + lockFilePath + ")", ex);
+                    }
+                }
+            } else {
+                stagingFileLock.setLockFailureMessage("Lock file does not exist, but could not be created. Check directory permissions.");
+            }
+        }
 
+        
+        return stagingFileLock;
+    }
 }

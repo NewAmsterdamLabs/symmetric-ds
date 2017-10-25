@@ -547,7 +547,7 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
     }
 
     public String buildSymmetricTableRouterId(String triggerId, String sourceNodeGroupId, String targetNodeGroupId) {
-        return StringUtils.left(replaceCharsToShortenName(String.format("%s_%s_2_%s", triggerId, sourceNodeGroupId, targetNodeGroupId)), 50);
+        return StringUtils.left(FormatUtils.replaceCharsToShortenName(String.format("%s_%s_2_%s", triggerId, sourceNodeGroupId, targetNodeGroupId)), 50);
     }
 
     protected TriggerRouter buildTriggerRoutersForSymmetricTables(String version, Trigger trigger,
@@ -1000,7 +1000,7 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
             saveRouter(triggerRouter.getRouter());
         }
         triggerRouter.setLastUpdateTime(new Date());
-        if (0 == sqlTemplate.update(
+        if (0 >= sqlTemplate.update(
                 getSql("updateTriggerRouterSql"),
                 new Object[] { triggerRouter.getInitialLoadOrder(),
                         triggerRouter.getInitialLoadSelect(),
@@ -1041,7 +1041,7 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
     public void saveRouter(Router router) {
         router.setLastUpdateTime(new Date());
         router.nullOutBlankFields();
-        if (0 == sqlTemplate.update(
+        if (0 >= sqlTemplate.update(
                 getSql("updateRouterSql"),
                 new Object[] { router.getTargetCatalogName(), router.getTargetSchemaName(),
                         router.getTargetTableName(),
@@ -1094,7 +1094,7 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
     public void saveTrigger(Trigger trigger) {
         trigger.setLastUpdateTime(new Date());
         trigger.nullOutBlankFields();
-        if (0 == sqlTemplate.update(
+        if (0 >= sqlTemplate.update(
                 getSql("updateTriggerSql"),
                 new Object[] { trigger.getSourceCatalogName(), trigger.getSourceSchemaName(),
                         trigger.getSourceTableName(), trigger.getChannelId(), trigger.getReloadChannelId(),
@@ -1828,10 +1828,6 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
         return hist;
     }
     
-    protected static String replaceCharsToShortenName(String triggerName) {
-        return triggerName.replaceAll("[^a-zA-Z0-9_]|[a|e|i|o|u|A|E|I|O|U]", "");
-    }
-
     protected String getTriggerName(DataEventType dml, int maxTriggerNameLength, Trigger trigger,
             Table table, List<TriggerHistory> activeTriggerHistories, TriggerHistory oldhist) {
 
@@ -1859,11 +1855,11 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
         if (StringUtils.isBlank(triggerName)) {
             String triggerPrefix1 = tablePrefix + "_";
             String triggerSuffix1 = "on_" + dml.getCode().toLowerCase() + "_for_";
-            String triggerSuffix2 = replaceCharsToShortenName(trigger.getTriggerId());
+            String triggerSuffix2 = FormatUtils.replaceCharsToShortenName(trigger.getTriggerId());
             if (trigger.isSourceTableNameWildCarded()) {
-                triggerSuffix2 = replaceCharsToShortenName(table.getName());
+                triggerSuffix2 = FormatUtils.replaceCharsToShortenName(table.getName());
             }
-            String triggerSuffix3 = replaceCharsToShortenName("_"
+            String triggerSuffix3 = FormatUtils.replaceCharsToShortenName("_"
                     + parameterService.getNodeGroupId());
             triggerName = triggerPrefix1 + triggerSuffix1 + triggerSuffix2 + triggerSuffix3;
             // use the node group id as part of the trigger if we can because it
@@ -2093,21 +2089,38 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
     }
     
     public TriggerHistory findTriggerHistoryForGenericSync() {
-        String triggerTableName = TableConstants.getTableName(tablePrefix,
-                TableConstants.SYM_NODE);
-        TriggerHistory history = findTriggerHistory(null, null, triggerTableName
-                .toUpperCase());
+        String triggerTableName = TableConstants.getTableName(tablePrefix, TableConstants.SYM_NODE);
+        try {
+            Collection<TriggerHistory> histories = historyMap.values();
+            for (TriggerHistory triggerHistory : histories) {
+                if (triggerHistory.getSourceTableName().equalsIgnoreCase(triggerTableName) && triggerHistory.getInactiveTime() == null) {
+                    return triggerHistory;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to find trigger history for generic sync", e);
+        }
+        TriggerHistory history = findTriggerHistory(null, null, triggerTableName.toUpperCase());
         if (history == null) {
             history = findTriggerHistory(null, null, triggerTableName);
         }
         return history;
     }
 
+    @Override
     public Map<Integer, List<TriggerRouter>> fillTriggerRoutersByHistIdAndSortHist(
             String sourceNodeGroupId, String targetNodeGroupId, List<TriggerHistory> triggerHistories) {
+        return fillTriggerRoutersByHistIdAndSortHist(sourceNodeGroupId, targetNodeGroupId, triggerHistories, getAllTriggerRoutersForReloadForCurrentNode(
+                sourceNodeGroupId, targetNodeGroupId));
+    }
+    
+    @Override
+    public Map<Integer, List<TriggerRouter>> fillTriggerRoutersByHistIdAndSortHist(
+            String sourceNodeGroupId, String targetNodeGroupId, List<TriggerHistory> triggerHistories, List<TriggerRouter> triggerRouters) {
+        
 
         final Map<Integer, List<TriggerRouter>> triggerRoutersByHistoryId = fillTriggerRoutersByHistId(
-                sourceNodeGroupId, targetNodeGroupId, triggerHistories);
+                sourceNodeGroupId, targetNodeGroupId, triggerHistories, triggerRouters);
         final List<Table> sortedTables = getSortedTablesFor(triggerHistories);
 
         Comparator<TriggerHistory> comparator = new Comparator<TriggerHistory>() {
@@ -2151,13 +2164,19 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
         return triggerRoutersByHistoryId;
 
     }
-
+    
+    
+    @Override
     public Map<Integer, List<TriggerRouter>> fillTriggerRoutersByHistId(
             String sourceNodeGroupId, String targetNodeGroupId, List<TriggerHistory> triggerHistories) {
+        return fillTriggerRoutersByHistId(sourceNodeGroupId, targetNodeGroupId, triggerHistories, getAllTriggerRoutersForReloadForCurrentNode(
+                sourceNodeGroupId, targetNodeGroupId));
+    }
 
-        List<TriggerRouter> triggerRouters = new ArrayList<TriggerRouter>(
-                getAllTriggerRoutersForReloadForCurrentNode(
-                        sourceNodeGroupId, targetNodeGroupId));
+    protected Map<Integer, List<TriggerRouter>> fillTriggerRoutersByHistId(
+            String sourceNodeGroupId, String targetNodeGroupId, List<TriggerHistory> triggerHistories, List<TriggerRouter> triggerRouters) {
+
+        triggerRouters = new ArrayList<TriggerRouter>(triggerRouters);
 
         Map<Integer, List<TriggerRouter>> triggerRoutersByHistoryId = new HashMap<Integer, List<TriggerRouter>>(
                 triggerHistories.size());
@@ -2188,7 +2207,8 @@ public class TriggerRouterService extends AbstractService implements ITriggerRou
                 tables.add(table);
             }
         }
-        return Database.sortByForeignKeys(tables);
+        //return Database.sortByForeignKeys(tables);
+        return Database.sortByForeignKeys(tables, null);
     }
 
     protected void awaitTermination(ExecutorService executor, List<Future<?>> futures) {

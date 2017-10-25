@@ -56,6 +56,8 @@ import org.jumpmind.symmetric.service.IRouterService;
 import org.jumpmind.symmetric.service.impl.ExtensionService;
 import org.jumpmind.symmetric.service.impl.NodeCommunicationService;
 import org.jumpmind.symmetric.service.impl.RouterService;
+import org.jumpmind.symmetric.statistic.IStatisticManager;
+import org.jumpmind.symmetric.statistic.StatisticManager;
 
 import android.content.Context;
 import android.database.sqlite.SQLiteOpenHelper;
@@ -102,9 +104,15 @@ public class AndroidSymmetricEngine extends AbstractSymmetricEngine {
     protected IStagingManager createStagingManager() {
         String directory = androidContext.getCacheDir().toString();
         log.info("Staging manager directory: " + directory);
-        return new StagingManager(directory);
+        return new StagingManager(directory,false);
     }
 
+    @Override
+    protected IStatisticManager createStatisticManager() {
+        return new StatisticManager(parameterService, nodeService,
+                configurationService, statisticService, clusterService);
+    }
+    
     @Override
     protected ISymmetricDialect createSymmetricDialect() {
         return new SqliteSymmetricDialect(parameterService, platform);

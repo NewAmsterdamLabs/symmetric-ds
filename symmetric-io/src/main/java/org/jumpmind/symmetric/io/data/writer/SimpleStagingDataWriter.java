@@ -147,12 +147,16 @@ public class SimpleStagingDataWriter {
                             listener.end(context, batch, resource);
                         }
                     }
+                    resource = null;
                 } else if (line.startsWith(CsvConstants.RETRY)) {
                     batch = new Batch(batchType, Long.parseLong(getArgLine(line)), getArgLine(channelLine), getBinaryEncoding(binaryLine),
                             getArgLine(nodeLine), targetNodeId, false);
                     String location = batch.getStagedLocation();
                     resource = stagingManager.find(category, location, batch.getBatchId());
                     if (resource == null || resource.getState() == State.CREATE) {
+                        if (resource != null) {
+                            resource.delete();
+                        }
                         resource = null;
                         writer = null;
                     }
@@ -214,17 +218,14 @@ public class SimpleStagingDataWriter {
 
         } catch (Exception ex) {
             if (resource != null) {
-                resource.close();
                 resource.delete();
             }
 
-            if (ex instanceof RuntimeException) {
-                throw (RuntimeException) ex;
-            } else if (ex instanceof IOException) {
-                throw (IOException) ex;
-            } else {
-                throw new RuntimeException(ex);
-            }
+            /*
+             * Just log an error here.  We want batches that come before us to continue to process and to be acknowledged
+             */
+            log.error("Failed to parse batch", ex);
+
         }
     }
 

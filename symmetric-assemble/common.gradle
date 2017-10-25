@@ -125,6 +125,8 @@ subprojects { subproject ->
         systemProperty "test.client", System.getProperty("test.client", "h2")
         systemProperty "test.root", System.getProperty("test.root", "h2")
         systemProperty "port.number", System.getProperty("port.number", "31415")
+        systemProperty "db2i.db.user", System.getProperty("db2i.db.user")
+        systemProperty "db2i.db.password", System.getProperty("db2i.db.password")
         minHeapSize = "128m"
         maxHeapSize = "512m"
         forkEvery=1
@@ -179,7 +181,8 @@ subprojects { subproject ->
         animalSnifferVersion = '1.10'
         jnaVersion = '4.1.0'
         jettyVersion = '9.2.18.v20160721'
-        
+        nuodbVersion = '2.6.1'
+        tiberoVersion = '6'
         env = System.getenv()
     }
 
@@ -207,9 +210,12 @@ subprojects { subproject ->
             exclude group: 'junit'
         }
         provided ("net.sf.jt400:jt400:$jt400Version")
+        provided "com.nuodb.jdbc:nuodb-jdbc:$nuodbVersion"
+        provided "jdbc.tibero:tibero:$tiberoVersion"
         // javax.resource needed by jaybird
         provided "org.apache.geronimo.specs:geronimo-j2ee-connector_1.6_spec:1.0"
         
+                
         testCompile fileTree(dir: System.getProperty("user.home") + '/.symmetricds/lib', include: '*.jar')
         testCompile "junit:junit:$junitVersion"
         testCompile "org.hamcrest:hamcrest-all:$hamcrestVersion"

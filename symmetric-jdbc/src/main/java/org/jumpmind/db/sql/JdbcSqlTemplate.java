@@ -341,7 +341,7 @@ public class JdbcSqlTemplate extends AbstractSqlTemplate implements ISqlTemplate
     public int update(final String sql, final Object[] args, final int[] types) {
         return execute(new IConnectionCallback<Integer>() {
             public Integer execute(Connection con) throws SQLException {
-                if (args == null) {
+                 if (args == null) {
                     Statement stmt = null;
                     try {
                         stmt = con.createStatement();
@@ -1024,7 +1024,15 @@ public class JdbcSqlTemplate extends AbstractSqlTemplate implements ISqlTemplate
     }
 
     protected void setDecimalValue(PreparedStatement ps, int i, Object arg, int argType) throws SQLException {
-        StatementCreatorUtils.setParameterValue(ps, i, verifyArgType(arg, argType), arg);
+        if ((argType == Types.DECIMAL || argType == Types.NUMERIC) && arg != null && arg.equals("NaN")) {
+            setNanOrNull(ps, i, arg, argType);
+        } else {
+            StatementCreatorUtils.setParameterValue(ps, i, verifyArgType(arg, argType), arg);
+        }
+    }
+    
+    protected void setNanOrNull(PreparedStatement ps, int i, Object arg, int argType) throws SQLException {
+        StatementCreatorUtils.setParameterValue(ps, i, verifyArgType(arg, argType), null);
     }
 
     protected int verifyArgType(Object arg, int argType) {

@@ -38,11 +38,14 @@ import org.jumpmind.db.platform.mssql.MsSql2000DatabasePlatform;
 import org.jumpmind.db.platform.mssql.MsSql2005DatabasePlatform;
 import org.jumpmind.db.platform.mssql.MsSql2008DatabasePlatform;
 import org.jumpmind.db.platform.mysql.MySqlDatabasePlatform;
+import org.jumpmind.db.platform.nuodb.NuoDbDatabasePlatform;
 import org.jumpmind.db.platform.oracle.OracleDatabasePlatform;
 import org.jumpmind.db.platform.postgresql.PostgreSqlDatabasePlatform;
+import org.jumpmind.db.platform.raima.RaimaDatabasePlatform;
 import org.jumpmind.db.platform.redshift.RedshiftDatabasePlatform;
 import org.jumpmind.db.platform.sqlanywhere.SqlAnywhereDatabasePlatform;
 import org.jumpmind.db.platform.sqlite.SqliteDatabasePlatform;
+import org.jumpmind.db.platform.tibero.TiberoDatabasePlatform;
 import org.jumpmind.db.platform.voltdb.VoltDbDatabasePlatform;
 import org.jumpmind.symmetric.db.ase.AseSymmetricDialect;
 import org.jumpmind.symmetric.db.db2.Db2As400SymmetricDialect;
@@ -63,12 +66,15 @@ import org.jumpmind.symmetric.db.mariadb.MariaDBSymmetricDialect;
 import org.jumpmind.symmetric.db.mssql.MsSqlSymmetricDialect;
 import org.jumpmind.symmetric.db.mssql2000.MsSql2000SymmetricDialect;
 import org.jumpmind.symmetric.db.mysql.MySqlSymmetricDialect;
+import org.jumpmind.symmetric.db.nuodb.NuoDbSymmetricDialect;
 import org.jumpmind.symmetric.db.oracle.OracleSymmetricDialect;
 import org.jumpmind.symmetric.db.postgresql.GreenplumSymmetricDialect;
 import org.jumpmind.symmetric.db.postgresql.PostgreSqlSymmetricDialect;
+import org.jumpmind.symmetric.db.raima.RaimaSymmetricDialect;
 import org.jumpmind.symmetric.db.redshift.RedshiftSymmetricDialect;
 import org.jumpmind.symmetric.db.sqlanywhere.SqlAnywhereSymmetricDialect;
 import org.jumpmind.symmetric.db.sqlite.SqliteJdbcSymmetricDialect;
+import org.jumpmind.symmetric.db.tibero.TiberoSymmetricDialect;
 import org.jumpmind.symmetric.db.voltdb.VoltDbSymmetricDialect;
 import org.jumpmind.symmetric.service.IParameterService;
 import org.slf4j.Logger;
@@ -155,7 +161,13 @@ public class JdbcSymmetricDialectFactory {
             dialect = new SqliteJdbcSymmetricDialect(parameterService, platform);
         } else if (platform instanceof VoltDbDatabasePlatform) {
             dialect = new VoltDbSymmetricDialect(parameterService, platform);
-        } else {
+        } else if (platform instanceof TiberoDatabasePlatform) {
+            dialect = new TiberoSymmetricDialect(parameterService, platform);
+        } else if (platform instanceof NuoDbDatabasePlatform){
+            dialect = new NuoDbSymmetricDialect(parameterService, platform);
+        } else if (platform instanceof RaimaDatabasePlatform){
+            dialect = new RaimaSymmetricDialect(parameterService, platform);
+        }else{
             dialect = new GenericSymmetricDialect(parameterService, platform);
         }
         return dialect;
